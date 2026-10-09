@@ -8,10 +8,11 @@ import { StaffSheet } from "@/components/StaffSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { playKey, playMidi } from "@/lib/audio";
+import { getAudioContext, playKey, playMidi, preloadPiano, stopAllNotes } from "@/lib/audio";
 import {
   DEFAULT_RANGE,
-  EAR_GUIDE_MIDIS,
+  EAR_GUIDE,
+  EAR_GUIDE_TOTAL,
   KEY_HINTS,
   RANGES,
   generateChord,
@@ -40,9 +41,6 @@ function isIntervalQuestion(question: Question): question is IntervalQuestion {
 
 const DEFAULT_CLEF: Clef = "treble";
 const DEFAULT_NOTE_COUNT = 1;
-/** 练耳：引导音之间的间隔 / 引导结束到出题音的间隔 */
-const EAR_STEP_MS = 320;
-const EAR_GAP_MS = 450;
 
 interface RoundState {
   question: Question;
@@ -111,30 +109,33 @@ export default function App() {
   const clearPlayback = useCallback(() => {
     playbackTimersRef.current.forEach((id) => window.clearTimeout(id));
     playbackTimersRef.current = [];
+    stopAllNotes();
   }, []);
 
   // 卸载时停掉还在排程的播放
   useEffect(() => () => clearPlayback(), [clearPlayback]);
 
-  /** 练耳：先按需播引导音，再播要猜的音；出题音响起的瞬间即可作答 */
+  /** 练耳：按 BPM 60 节奏一次性排好引导音，出题音在引导结束后响起即可作答 */
   const startEarPlayback = useCallback(
     (midi: number) => {
       clearPlayback();
       setQuestionReady(false);
-      const timers: number[] = [];
-      let answerAt = 0;
+      const ctx = getAudioContext();
+      const base = ctx ? ctx.currentTime : 0;
+      const answerAt = earGuide ? EAR_GUIDE_TOTAL : 0;
       if (earGuide) {
-        EAR_GUIDE_MIDIS.forEach((guideMidi, index) => {
-          timers.push(window.setTimeout(() => playMidi(guideMidi, 0.28, 0.24), index * EAR_STEP_MS));
-        });
-        answerAt = (EAR_GUIDE_MIDIS.length - 1) * EAR_STEP_MS + EAR_GAP_MS;
+        for (const note of EAR_GUIDE) playMidi(note.midi, note.duration, 0.24, base + note.time);
       }
-      timers.push(window.setTimeout(() => playMidi(midi, 1.0, 0.26), answerAt));
-      timers.push(window.setTimeout(() => setQuestionReady(true), answerAt));
-      playbackTimersRef.current = timers;
+      playMidi(midi, 1.0, 0.26, base + answerAt);
+      playbackTimersRef.current = [window.setTimeout(() => setQuestionReady(true), answerAt * 1000 + 80)];
     },
     [clearPlayback, earGuide],
   );
+
+  // 启动即预载钢琴采样（失败时播放自动退回合成音）
+  useEffect(() => {
+    void preloadPiano();
+  }, []);
 
   const nextQuestion = useCallback(() => {
     clearTimer();

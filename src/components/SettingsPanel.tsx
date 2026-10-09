@@ -162,7 +162,7 @@ export function SettingsPanel({
               <Switch id="ear-guide-switch" checked={earGuide} onCheckedChange={onEarGuideChange} />
             </div>
             <p className="text-xs text-muted-foreground">
-              {earGuide ? "标准音 la → la ti do re mi fa sol la" : "只播要猜的那个音"}
+              {earGuide ? "标准音 A4 → 音阶 C4–C5 → 标准音 A4 ×2" : "只播要猜的那个音"}
             </p>
           </div>
 

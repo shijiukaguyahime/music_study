@@ -389,12 +389,45 @@ export function generateInterval(range: Range, clef: Clef, allowAccidentals: boo
 export const EAR_LO = 60;
 export const EAR_HI = 71;
 
+/** 引导音的单个音：time/duration 单位为秒 */
+export interface EarGuideNote {
+  midi: number;
+  time: number;
+  duration: number;
+}
+
+/** 引导节奏 BPM（四分音符 = 60/BPM 秒） */
+export const EAR_GUIDE_BPM = 60;
+
+const EAR_BEAT = 60 / EAR_GUIDE_BPM; // 四分 = 1s
+const EAR_EIGHTH = EAR_BEAT / 2; // 八分 = 0.5s
+/** 段落之间的停顿（半拍） */
+export const EAR_GUIDE_REST = EAR_EIGHTH;
+
+/** 音阶 do re mi fa sol la ti do：C4 → C5 */
+const EAR_SCALE_MIDIS = [60, 62, 64, 65, 67, 69, 71, 72];
+const EAR_SCALE_START = EAR_BEAT + EAR_GUIDE_REST;
+
+const EAR_SCALE: EarGuideNote[] = EAR_SCALE_MIDIS.map((midi, index) => ({
+  midi,
+  time: EAR_SCALE_START + index * EAR_EIGHTH,
+  duration: EAR_EIGHTH,
+}));
+const EAR_FINAL_START = EAR_SCALE_START + EAR_SCALE_MIDIS.length * EAR_EIGHTH + EAR_GUIDE_REST;
+
 /**
- * 每题开头依次播放的引导音（midi）：
- * 标准音 la(A4=440) → 从 la 起的音阶 la ti do re mi fa sol la（A3 → A4）→ 回到 la la。
- * 想改长度/音区只要改这个数组。
+ * 每题开头的引导音（BPM 60，段落间停半拍）：
+ * 标准音 A4（四分）→ 停 → 音阶 C4→C5（八分 ×8）→ 停 → 标准音 A4、A4（四分 ×2）→ 停 → 出题音。
  */
-export const EAR_GUIDE_MIDIS: number[] = [69, 57, 59, 60, 62, 64, 65, 67, 69, 69, 69];
+export const EAR_GUIDE: EarGuideNote[] = [
+  { midi: 69, time: 0, duration: EAR_BEAT },
+  ...EAR_SCALE,
+  { midi: 69, time: EAR_FINAL_START, duration: EAR_BEAT },
+  { midi: 69, time: EAR_FINAL_START + EAR_BEAT, duration: EAR_BEAT },
+];
+
+/** 引导全部结束的时刻（秒，已含最后一段停顿），出题音在此刻播放 */
+export const EAR_GUIDE_TOTAL = EAR_FINAL_START + EAR_BEAT * 2 + EAR_GUIDE_REST;
 
 /** 练耳出题：C4–B4 里随机一个音，升降号开关决定是否含黑键 */
 export function generateEarNote(allowAccidentals: boolean, exclude?: number): Question {

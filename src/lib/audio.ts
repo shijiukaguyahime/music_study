@@ -10,43 +10,178 @@ export function getAudioContext(): AudioContext | null {
   return audioContext;
 }
 
-/** 相对泛音：[倍频, 音量, 衰减系数]，高泛音衰减更快更像钢琴 */
-const PARTIALS: [number, number, number][] = [
+/* ---------------- 钢琴采样（public/piano/<midi>.mp3） ---------------- */
+
+/** 采样覆盖的 MIDI 范围：C4–A5 = 琴键 C4–B4 + 练耳引导音阶 C4–C5（留出余量） */
+export const PIANO_SAMPLE_LO = 60;
+export const PIANO_SAMPLE_HI = 81;
+
+const sampleBuffers = new Map<number, AudioBuffer>();
+let preloadPromise: Promise<void> | null = null;
+
+/** 预载全部钢琴采样；个别失败时该音自动退回合成音 */
+export function preloadPiano(): Promise<void> {
+  if (preloadPromise) return preloadPromise;
+  preloadPromise = (async () => {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    const jobs: Promise<void>[] = [];
+    for (let midi = PIANO_SAMPLE_LO; midi <= PIANO_SAMPLE_HI; midi++) {
+      jobs.push(
+        (async () => {
+          try {
+            const res = await fetch(`/piano/${midi}.mp3`);
+            if (!res.ok) return;
+            const raw = await res.arrayBuffer();
+            const buffer = await ctx.decodeAudioData(raw);
+            sampleBuffers.set(midi, buffer);
+          } catch {
+            /* 忽略，播放时用合成兜底 */
+          }
+        })(),
+      );
+    }
+    await Promise.all(jobs);
+  })();
+  return preloadPromise;
+}
+
+/** 已就绪的采样数量（测试/诊断用） */
+export function loadedSampleCount(): number {
+  return sampleBuffers.size;
+}
+
+/**
+ * 采样音量归一：soundfont 采样峰值仅约 0.024–0.065（约 -30dB，几乎听不见），
+ * 按实测峰值补偿到统一目标电平 1.12（乘上 0.22–0.26 的播放增益后约 0.25–0.29，
+ * 与节拍器点击声同量级）。未知音高回退 1（不补偿）。
+ */
+const SAMPLE_TRIM: Record<number, number> = {
+  60: 38.1, 61: 37.3, 62: 22.1, 63: 22.1, 64: 22.0, 65: 18.5,
+  66: 17.5, 67: 18.2, 68: 34.9, 69: 35.2, 70: 34.9, 71: 46.1,
+  72: 47.5, 73: 46.1, 74: 28.6, 75: 28.8, 76: 28.7, 77: 17.3,
+  78: 17.5, 79: 17.3, 80: 24.8, 81: 24.9,
+};
+
+/** 正在排程/发声的音，换题或切模式时可整体停掉 */
+const activeVoices = new Set<AudioScheduledSourceNode>();
+
+function trackVoice<T extends AudioScheduledSourceNode>(voice: T): T {
+  activeVoices.add(voice);
+  voice.onended = () => activeVoices.delete(voice);
+  return voice;
+}
+
+/** 立即停掉所有已排程/正在发声的音（换题、切设置时调用） */
+export function stopAllNotes() {
+  for (const voice of activeVoices) {
+    try {
+      voice.stop();
+    } catch {
+      /* 已结束的节点会抛异常，忽略 */
+    }
+  }
+  activeVoices.clear();
+}
+
+/** 播放一段采样：到时值末尾后快速淡出，做到断奏/抬键可控 */
+function playSample(ctx: AudioContext, buffer: AudioBuffer, midi: number, duration: number, gain: number, t0: number) {
+  const source = trackVoice(ctx.createBufferSource());
+  source.buffer = buffer;
+  const env = ctx.createGain();
+  const out = ctx.createGain();
+  out.gain.value = gain * (SAMPLE_TRIM[midi] ?? 1);
+  const releaseAt = t0 + duration;
+  env.gain.setValueAtTime(0.0001, t0);
+  env.gain.linearRampToValueAtTime(1, t0 + 0.004);
+  env.gain.setValueAtTime(1, releaseAt);
+  env.gain.exponentialRampToValueAtTime(0.0001, releaseAt + 0.045);
+  source.connect(env).connect(out).connect(ctx.destination);
+  source.start(t0);
+  source.stop(releaseAt + 0.1);
+}
+
+/* ---------------- 合成兜底（采样缺失时使用） ---------------- */
+
+/** 琴弦非谐性：f_n = n·f0·√(1+B·n²)，真实钢琴泛音略偏高 */
+const INHARMONICITY = 0.0004;
+
+/** [泛音次数, 相对幅度, 时值系数]，高泛音衰减更快 */
+const SYNTH_PARTIALS: [number, number, number][] = [
   [1, 1, 1],
-  [2, 0.42, 1.35],
-  [3, 0.2, 1.7],
-  [4, 0.11, 2.1],
-  [5.02, 0.06, 2.5],
+  [2, 0.5, 0.8],
+  [3, 0.26, 0.62],
+  [4, 0.15, 0.5],
+  [5, 0.09, 0.42],
+  [6, 0.055, 0.34],
+  [7, 0.035, 0.28],
+  [8, 0.02, 0.22],
 ];
 
-/** 播放一个 MIDI 音高（60 = 中央C） */
-export function playMidi(midi: number, duration = 1.1, gain = 0.2) {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-  const freq = 440 * Math.pow(2, (midi - 69) / 12);
-  const t0 = ctx.currentTime;
-  const master = ctx.createGain();
-  master.gain.value = gain;
-  master.connect(ctx.destination);
+let noiseBuffer: AudioBuffer | null = null;
 
-  for (const [multiple, level, decay] of PARTIALS) {
-    const osc = ctx.createOscillator();
-    osc.type = multiple === 1 ? "triangle" : "sine";
-    osc.frequency.setValueAtTime(freq * multiple, t0);
+function getNoiseBuffer(ctx: AudioContext): AudioBuffer {
+  if (noiseBuffer) return noiseBuffer;
+  const length = Math.ceil(ctx.sampleRate * 0.05);
+  noiseBuffer = ctx.createBuffer(1, length, ctx.sampleRate);
+  const data = noiseBuffer.getChannelData(0);
+  for (let i = 0; i < length; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 4);
+  }
+  return noiseBuffer;
+}
 
+function synthNote(ctx: AudioContext, midi: number, duration: number, gain: number, t0: number) {
+  const f0 = 440 * Math.pow(2, (midi - 69) / 12);
+  const out = ctx.createGain();
+  out.gain.value = gain;
+  const tone = ctx.createBiquadFilter();
+  tone.type = "lowpass";
+  tone.frequency.value = Math.min(11000, Math.max(4500, f0 * 16));
+  tone.Q.value = 0.4;
+  out.connect(tone).connect(ctx.destination);
+
+  for (const [n, level, decayScale] of SYNTH_PARTIALS) {
+    const freq = n * f0 * Math.sqrt(1 + INHARMONICITY * n * n);
+    if (freq > ctx.sampleRate / 2 - 200) break;
+    const osc = trackVoice(ctx.createOscillator());
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, t0);
     const env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, t0);
-    env.gain.exponentialRampToValueAtTime(level, t0 + 0.01);
-    env.gain.exponentialRampToValueAtTime(0.0001, t0 + duration / decay);
-
-    osc.connect(env);
-    env.connect(master);
+    env.gain.exponentialRampToValueAtTime(level, t0 + 0.005);
+    env.gain.exponentialRampToValueAtTime(0.0001, t0 + duration * (0.3 + 0.7 * decayScale));
+    osc.connect(env).connect(out);
     osc.start(t0);
-    osc.stop(t0 + duration + 0.05);
+    osc.stop(t0 + duration + 0.15);
   }
 
-  master.gain.setValueAtTime(gain, t0);
-  master.gain.exponentialRampToValueAtTime(0.0001, t0 + duration + 0.06);
+  // 击弦瞬态
+  const noise = trackVoice(ctx.createBufferSource());
+  noise.buffer = getNoiseBuffer(ctx);
+  const hp = ctx.createBiquadFilter();
+  hp.type = "highpass";
+  hp.frequency.value = 1600;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(0.0001, t0);
+  ng.gain.exponentialRampToValueAtTime(0.09, t0 + 0.002);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.06);
+  noise.connect(hp).connect(ng).connect(out);
+  noise.start(t0);
+}
+
+/** 播放一个 MIDI 音高（60 = 中央C）。when 给定时按 AudioContext 时间精确排程 */
+export function playMidi(midi: number, duration = 1.1, gain = 0.2, when?: number) {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const t0 = when !== undefined ? Math.max(when, ctx.currentTime) : ctx.currentTime;
+  const rounded = Math.round(midi);
+  const buffer = sampleBuffers.get(rounded);
+  if (buffer) {
+    playSample(ctx, buffer, rounded, duration, gain, t0);
+    return;
+  }
+  synthNote(ctx, midi, duration, gain, t0);
 }
 
 /** 播放钢琴键盘上的一个键（按音级，固定在 C4–B4 这一组） */

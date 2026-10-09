@@ -9,19 +9,22 @@ const SHORTCUT_BY_PC: Record<number, string> = Object.fromEntries(
 );
 
 interface PianoKeyboardProps {
-  correctPc: number;
-  pickedPc: number | null;
+  /** 本题要依次按下的音级（正确答案，顺序即作答顺序） */
+  targets: number[];
+  /** 本轮已经按下的音级 */
+  pressed: number[];
+  /** 作答已结束 */
   revealed: boolean;
   onPick: (pc: number) => void;
 }
 
-type KeyState = "idle" | "correct" | "wrong";
+type KeyState = "idle" | "pressed" | "correct" | "wrong";
 
-export function PianoKeyboard({ correctPc, pickedPc, revealed, onPick }: PianoKeyboardProps) {
+export function PianoKeyboard({ targets, pressed, revealed, onPick }: PianoKeyboardProps) {
   const stateOf = (pc: number): KeyState => {
-    if (!revealed) return "idle";
-    if (pc === correctPc) return "correct";
-    if (pc === pickedPc) return "wrong";
+    const wasPressed = pressed.includes(pc);
+    if (wasPressed) return targets.includes(pc) ? "correct" : "wrong";
+    if (revealed) return targets.includes(pc) ? "correct" : "idle";
     return "idle";
   };
 
@@ -31,6 +34,7 @@ export function PianoKeyboard({ correctPc, pickedPc, revealed, onPick }: PianoKe
       "flex flex-col items-center justify-end pb-3 transition-colors duration-150",
       "last:border-r focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring",
       "hover:bg-neutral-100 active:bg-neutral-200",
+      state === "pressed" && "bg-neutral-200 hover:bg-neutral-200",
       state === "correct" && "border-emerald-600 bg-emerald-500 text-white hover:bg-emerald-500",
       state === "wrong" && "border-red-600 bg-red-500 text-white hover:bg-red-500",
     );
@@ -42,9 +46,12 @@ export function PianoKeyboard({ correctPc, pickedPc, revealed, onPick }: PianoKe
       "bg-neutral-900 shadow-[0_3px_0_rgba(0,0,0,0.35)] transition-colors duration-150",
       "hover:bg-neutral-700 active:bg-neutral-600",
       "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring",
+      state === "pressed" && "bg-neutral-700 hover:bg-neutral-700",
       state === "correct" && "border-emerald-400 bg-emerald-600 text-white hover:bg-emerald-600",
       state === "wrong" && "border-red-400 bg-red-600 text-white hover:bg-red-600",
     );
+
+  const answerText = targets.map((pc) => PC_NAMES[pc]).join(" → ");
 
   return (
     <div className="w-full">
@@ -99,8 +106,8 @@ export function PianoKeyboard({ correctPc, pickedPc, revealed, onPick }: PianoKe
         })}
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>点击琴键作答 · 一组 12 个音（白键 A S D F G H J，黑键 W E T Y U）</span>
-        {revealed && <span className="font-medium text-foreground">正确琴键：{PC_NAMES[correctPc]}</span>}
+        <span>点击琴键作答 · 白键 A S D F G H J，黑键 W E T Y U</span>
+        {revealed && <span className="font-medium text-foreground">正确琴键：{answerText}</span>}
       </div>
     </div>
   );

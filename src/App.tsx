@@ -1,20 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Circle, RotateCcw, XCircle } from "lucide-react";
+import { IntervalOptions } from "@/components/IntervalOptions";
 import { PianoKeyboard } from "@/components/PianoKeyboard";
-import { SettingsPanel } from "@/components/SettingsPanel";
+import { SettingsPanel, type TrainMode } from "@/components/SettingsPanel";
 import { StaffSheet } from "@/components/StaffSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { playKey } from "@/lib/audio";
 import {
   DEFAULT_RANGE,
   KEY_HINTS,
   RANGES,
-  generateNote,
+  generateChord,
+  generateInterval,
+  intervalOptions,
   noteName,
   solfege,
   type Clef,
-  type Note,
+  type IntervalQuestion,
+  type Question,
 } from "@/lib/music/theory";
 
 interface Stats {
@@ -26,64 +31,164 @@ interface Stats {
 
 const EMPTY_STATS: Stats = { total: 0, correct: 0, streak: 0, best: 0 };
 
+function isIntervalQuestion(question: Question): question is IntervalQuestion {
+  return "name" in question;
+}
+
+const DEFAULT_CLEF: Clef = "treble";
+const DEFAULT_NOTE_COUNT = 1;
+
+interface RoundState {
+  question: Question;
+  options: string[];
+  pressed: number[];
+  pickedOption: string | null;
+  done: boolean;
+  ok: boolean;
+}
+
+function createInitialRound(): RoundState {
+  const range = RANGES[DEFAULT_CLEF].find((item) => item.id === DEFAULT_RANGE[DEFAULT_CLEF]) ?? RANGES[DEFAULT_CLEF][0];
+  return {
+    question: generateChord(range, DEFAULT_CLEF, false, DEFAULT_NOTE_COUNT),
+    options: [],
+    pressed: [],
+    pickedOption: null,
+    done: false,
+    ok: false,
+  };
+}
+
 export default function App() {
-  const [clef, setClef] = useState<Clef>("treble");
-  const [rangeId, setRangeId] = useState(DEFAULT_RANGE.treble);
+  const [initial] = useState<RoundState>(createInitialRound);
+  const [mode, setMode] = useState<TrainMode>("note");
+  const [clef, setClef] = useState<Clef>(DEFAULT_CLEF);
+  const [rangeId, setRangeId] = useState(DEFAULT_RANGE[DEFAULT_CLEF]);
   const [allowAccidentals, setAllowAccidentals] = useState(false);
-  const [note, setNote] = useState<Note>(() =>
-    generateNote(RANGES.treble[0], false),
-  );
-  const [picked, setPicked] = useState<number | null>(null);
-  const [stats, setStats] = useState<Stats>(EMPTY_STATS);
+  const [noteCount, setNoteCount] = useState(DEFAULT_NOTE_COUNT);
+  const [showDuration, setShowDuration] = useState("");
+  const [notesHidden, setNotesHidden] = useState(false);
+
+  const [question, setQuestion] = useState<Question>(initial.question);
+  const [options, setOptions] = useState<string[]>(initial.options);
+  const [pressed, setPressed] = useState<number[]>(initial.pressed);
+  const [pickedOption, setPickedOption] = useState<string | null>(initial.pickedOption);
+  const [done, setDone] = useState(initial.done);
+  const [ok, setOk] = useState(initial.ok);
+  const [stats, setStats] = useState<Record<TrainMode, Stats>>({
+    note: EMPTY_STATS,
+    interval: EMPTY_STATS,
+  });
 
   const timerRef = useRef<number | null>(null);
+  const lastMidiRef = useRef<number | undefined>(initial.question.notes[0]?.midi);
 
   const range = useMemo(
     () => RANGES[clef].find((item) => item.id === rangeId) ?? RANGES[clef][0],
     [clef, rangeId],
   );
 
-  const goNext = useCallback(() => {
+  const clearTimer = useCallback(() => {
     if (timerRef.current) {
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    setPicked(null);
-    setNote(generateNote(range, allowAccidentals));
-  }, [range, allowAccidentals]);
+  }, []);
 
-  useEffect(() => {
-    if (timerRef.current) window.clearTimeout(timerRef.current);
-    timerRef.current = null;
-    setPicked(null);
-    setNote(generateNote(range, allowAccidentals));
-    return () => {
-      if (timerRef.current) window.clearTimeout(timerRef.current);
-    };
-  }, [range, allowAccidentals]);
+  const nextQuestion = useCallback(() => {
+    clearTimer();
+    if (mode === "interval") {
+      const generated = generateInterval(range, clef, allowAccidentals);
+      setQuestion(generated);
+      setOptions(intervalOptions(generated.name, allowAccidentals));
+      lastMidiRef.current = generated.lower.midi;
+    } else {
+      const generated = generateChord(range, clef, allowAccidentals, noteCount, lastMidiRef.current);
+      setQuestion(generated);
+      lastMidiRef.current = generated.notes[0].midi;
+    }
+    setPressed([]);
+    setPickedOption(null);
+    setDone(false);
+    setOk(false);
+  }, [allowAccidentals, clearTimer, clef, mode, noteCount, range]);
 
-  const answer = useCallback(
-    (pc: number) => {
-      if (picked !== null) return;
-      const ok = pc === note.pc;
-      setPicked(pc);
+  const finish = useCallback(
+    (correct: boolean) => {
+      setDone(true);
+      setOk(correct);
       setStats((prev) => {
-        const streak = ok ? prev.streak + 1 : 0;
-        return {
-          total: prev.total + 1,
-          correct: prev.correct + (ok ? 1 : 0),
+        const current = prev[mode];
+        const streak = correct ? current.streak + 1 : 0;
+        const next: Record<TrainMode, Stats> = { ...prev };
+        next[mode] = {
+          total: current.total + 1,
+          correct: current.correct + (correct ? 1 : 0),
           streak,
-          best: Math.max(prev.best, streak),
+          best: Math.max(current.best, streak),
         };
+        return next;
       });
+      clearTimer();
       timerRef.current = window.setTimeout(() => {
         timerRef.current = null;
-        setPicked(null);
-        setNote(generateNote(range, allowAccidentals, note.midi));
-      }, 1500);
+        nextQuestion();
+      }, 1800);
     },
-    [picked, note, range, allowAccidentals],
+    [clearTimer, mode, nextQuestion],
   );
+
+  const answerNote = useCallback(
+    (pc: number) => {
+      playKey(pc);
+      if (done || mode !== "note") return;
+      const expected = question.notes[pressed.length]?.pc;
+      if (expected === undefined) return;
+      if (pc === expected) {
+        const next = [...pressed, pc];
+        setPressed(next);
+        if (next.length >= question.notes.length) finish(true);
+      } else {
+        setPressed([...pressed, pc]);
+        finish(false);
+      }
+    },
+    [done, finish, mode, pressed, question],
+  );
+
+  const answerInterval = useCallback(
+    (name: string) => {
+      if (done || mode !== "interval" || !isIntervalQuestion(question)) return;
+      setPickedOption(name);
+      finish(name === question.name);
+    },
+    [done, finish, mode, question],
+  );
+
+  const goNext = useCallback(() => nextQuestion(), [nextQuestion]);
+
+  // 设置变化时重新出题（首次挂载沿用 createInitialRound 的题，避免闪换）
+  const settingsKey = `${mode}|${clef}|${rangeId}|${allowAccidentals}|${noteCount}`;
+  const prevSettingsRef = useRef(settingsKey);
+  useEffect(() => {
+    if (prevSettingsRef.current === settingsKey) return;
+    prevSettingsRef.current = settingsKey;
+    nextQuestion();
+    return clearTimer;
+  }, [settingsKey, nextQuestion, clearTimer]);
+
+  // 音符显示时长：到时间先隐藏（练瞬时记忆），作答揭晓后重新显示
+  const hideAfter = useMemo(() => {
+    const seconds = Number.parseFloat(showDuration);
+    return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
+  }, [showDuration]);
+
+  useEffect(() => {
+    setNotesHidden(false);
+    if (done || mode !== "note" || hideAfter <= 0) return;
+    const timer = window.setTimeout(() => setNotesHidden(true), hideAfter);
+    return () => window.clearTimeout(timer);
+  }, [done, mode, hideAfter, question]);
 
   const handlerRef = useRef<(event: KeyboardEvent) => void>(() => {});
   handlerRef.current = (event: KeyboardEvent) => {
@@ -92,16 +197,22 @@ export default function App() {
     if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
     const key = event.key.toLowerCase();
     if (key === " " || key === "enter") {
-      if (picked !== null) {
+      event.preventDefault();
+      goNext();
+      return;
+    }
+    if (mode === "interval" && key >= "1" && key <= "4") {
+      const option = options[Number(key) - 1];
+      if (option) {
         event.preventDefault();
-        goNext();
+        answerInterval(option);
       }
       return;
     }
     const pc = KEY_HINTS[key];
     if (pc !== undefined) {
       event.preventDefault();
-      answer(pc);
+      answerNote(pc);
     }
   };
 
@@ -111,10 +222,30 @@ export default function App() {
     return () => window.removeEventListener("keydown", listener);
   }, []);
 
-  const revealed = picked !== null;
-  const wasCorrect = revealed && picked === note.pc;
+  const currentStats = stats[mode];
+  const revealed = done;
+  const interval = isIntervalQuestion(question) ? question : null;
+  const noteNames = question.notes.map(noteName);
   const accuracy =
-    stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0;
+    currentStats.total > 0 ? Math.round((currentStats.correct / currentStats.total) * 100) : 0;
+
+  const idleText = (() => {
+    if (mode === "interval") return "看谱后在下方选择两个音构成的音程";
+    const action = noteCount === 1 ? "在下方钢琴键盘上作答" : `按从低到高依次按下 ${noteCount} 个音`;
+    return notesHidden ? `谱面已隐藏，凭记忆${action}` : `看谱后${action}`;
+  })();
+
+  const resultText = (() => {
+    if (mode === "interval" && interval) {
+      const pair = `${noteName(interval.lower)} → ${noteName(interval.upper)}`;
+      return ok ? `回答正确：${pair} 是 ${interval.name}` : `答错了，正确答案是 ${interval.name}（${pair}）`;
+    }
+    const answer =
+      noteNames.length === 1
+        ? `${noteNames[0]} · ${solfege(question.notes[0])}`
+        : noteNames.join(" → ");
+    return ok ? `回答正确：${answer}` : `答错了，正确答案是 ${answer}`;
+  })();
 
   return (
     <div className="min-h-screen">
@@ -125,8 +256,19 @@ export default function App() {
             <p className="text-sm text-muted-foreground">五线谱视奏练习</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="default">
+            <Button
+              size="sm"
+              variant={mode === "note" ? "default" : "outline"}
+              onClick={() => setMode("note")}
+            >
               单音训练
+            </Button>
+            <Button
+              size="sm"
+              variant={mode === "interval" ? "default" : "outline"}
+              onClick={() => setMode("interval")}
+            >
+              音程训练
             </Button>
             <Button size="sm" variant="ghost" disabled>
               乐句训练
@@ -142,25 +284,37 @@ export default function App() {
         <Card>
           <CardContent className="py-5">
             <SettingsPanel
+              mode={mode}
               clef={clef}
               rangeId={range.id}
               allowAccidentals={allowAccidentals}
+              noteCount={noteCount}
+              showDuration={showDuration}
               onClefChange={setClef}
               onRangeChange={setRangeId}
               onAccidentalsChange={setAllowAccidentals}
+              onNoteCountChange={setNoteCount}
+              onShowDurationChange={setShowDuration}
             />
           </CardContent>
         </Card>
 
         <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
           <div className="space-y-4">
-            <StaffSheet clef={clef} note={note} />
+            <StaffSheet
+              clef={clef}
+              range={range}
+              staff={question.staff}
+              notes={question.notes}
+              layout={question.layout}
+              hidden={notesHidden}
+            />
 
             <Card
               className={
                 !revealed
                   ? "border-dashed"
-                  : wasCorrect
+                  : ok
                     ? "border-emerald-500/60 bg-emerald-50"
                     : "border-red-500/60 bg-red-50"
               }
@@ -170,23 +324,17 @@ export default function App() {
                   {!revealed ? (
                     <>
                       <Circle className="size-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">
-                        看谱后在下方钢琴键盘上作答
-                      </span>
+                      <span className="text-muted-foreground">{idleText}</span>
                     </>
-                  ) : wasCorrect ? (
+                  ) : ok ? (
                     <>
                       <CheckCircle2 className="size-4 text-emerald-600" />
-                      <span className="font-medium text-emerald-700">
-                        回答正确：{noteName(note)} · {solfege(note)}
-                      </span>
+                      <span className="font-medium text-emerald-700">{resultText}</span>
                     </>
                   ) : (
                     <>
                       <XCircle className="size-4 text-red-600" />
-                      <span className="font-medium text-red-700">
-                        答错了，正确答案是 {noteName(note)} · {solfege(note)}
-                      </span>
+                      <span className="font-medium text-red-700">{resultText}</span>
                     </>
                   )}
                 </div>
@@ -198,12 +346,22 @@ export default function App() {
 
             <Card>
               <CardContent className="pt-5">
-                <PianoKeyboard
-                  correctPc={note.pc}
-                  pickedPc={picked}
-                  revealed={revealed}
-                  onPick={answer}
-                />
+                {mode === "note" ? (
+                  <PianoKeyboard
+                    targets={question.notes.map((item) => item.pc)}
+                    pressed={pressed}
+                    revealed={revealed}
+                    onPick={answerNote}
+                  />
+                ) : interval ? (
+                  <IntervalOptions
+                    options={options}
+                    correct={interval.name}
+                    picked={pickedOption}
+                    revealed={revealed}
+                    onPick={answerInterval}
+                  />
+                ) : null}
               </CardContent>
             </Card>
           </div>
@@ -217,20 +375,28 @@ export default function App() {
                     size="icon"
                     variant="ghost"
                     className="size-7"
-                    onClick={() => setStats(EMPTY_STATS)}
+                    onClick={() =>
+                      setStats((prev) => {
+                        const next: Record<TrainMode, Stats> = { ...prev };
+                        next[mode] = EMPTY_STATS;
+                        return next;
+                      })
+                    }
                     aria-label="重置成绩"
                   >
                     <RotateCcw className="size-3.5" />
                   </Button>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <Stat label="题数" value={String(stats.total)} />
+                  <Stat label="题数" value={String(currentStats.total)} />
                   <Stat label="正确率" value={`${accuracy}%`} />
-                  <Stat label="连击" value={String(stats.streak)} />
-                  <Stat label="最佳连击" value={String(stats.best)} />
+                  <Stat label="连击" value={String(currentStats.streak)} />
+                  <Stat label="最佳连击" value={String(currentStats.best)} />
                 </div>
                 <div className="rounded-md bg-muted px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                  快捷键：白键 A S D F G H J，黑键 W E T Y U，空格跳到下一题。
+                  {mode === "note"
+                    ? "快捷键：白键 A S D F G H J，黑键 W E T Y U，空格跳到下一题。"
+                    : "快捷键：选项 1 2 3 4，空格跳到下一题。"}
                 </div>
               </CardContent>
             </Card>

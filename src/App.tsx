@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Circle, RotateCcw, Timer, XCircle } from "lucide-react";
+import { CheckCircle2, Circle, Headphones, RotateCcw, Timer, XCircle } from "lucide-react";
 import { IntervalOptions } from "@/components/IntervalOptions";
 import { Metronome } from "@/components/Metronome";
 import { PianoKeyboard } from "@/components/PianoKeyboard";
@@ -8,12 +8,14 @@ import { StaffSheet } from "@/components/StaffSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { playKey } from "@/lib/audio";
+import { playKey, playMidi } from "@/lib/audio";
 import {
   DEFAULT_RANGE,
+  EAR_GUIDE_MIDIS,
   KEY_HINTS,
   RANGES,
   generateChord,
+  generateEarNote,
   generateInterval,
   intervalOptions,
   noteName,
@@ -38,6 +40,9 @@ function isIntervalQuestion(question: Question): question is IntervalQuestion {
 
 const DEFAULT_CLEF: Clef = "treble";
 const DEFAULT_NOTE_COUNT = 1;
+/** 练耳：引导音之间的间隔 / 引导结束到出题音的间隔 */
+const EAR_STEP_MS = 320;
+const EAR_GAP_MS = 450;
 
 interface RoundState {
   question: Question;
@@ -70,6 +75,9 @@ export default function App() {
   const [showDuration, setShowDuration] = useState("");
   const [notesHidden, setNotesHidden] = useState(false);
   const [metronomeOpen, setMetronomeOpen] = useState(false);
+  const [earGuide, setEarGuide] = useState(true);
+  /** 练耳：引导音/出题音还在播放时为 false，播放期间不接受作答 */
+  const [questionReady, setQuestionReady] = useState(true);
 
   const [question, setQuestion] = useState<Question>(initial.question);
   const [options, setOptions] = useState<string[]>(initial.options);
@@ -80,9 +88,12 @@ export default function App() {
   const [stats, setStats] = useState<Record<TrainMode, Stats>>({
     note: EMPTY_STATS,
     interval: EMPTY_STATS,
+    ear: EMPTY_STATS,
   });
 
   const timerRef = useRef<number | null>(null);
+  /** 练耳：正在排程的播放定时器，换题/切模式时清掉 */
+  const playbackTimersRef = useRef<number[]>([]);
   const lastMidiRef = useRef<number | undefined>(initial.question.notes[0]?.midi);
 
   const range = useMemo(
@@ -97,23 +108,60 @@ export default function App() {
     }
   }, []);
 
+  const clearPlayback = useCallback(() => {
+    playbackTimersRef.current.forEach((id) => window.clearTimeout(id));
+    playbackTimersRef.current = [];
+  }, []);
+
+  // 卸载时停掉还在排程的播放
+  useEffect(() => () => clearPlayback(), [clearPlayback]);
+
+  /** 练耳：先按需播引导音，再播要猜的音；出题音响起的瞬间即可作答 */
+  const startEarPlayback = useCallback(
+    (midi: number) => {
+      clearPlayback();
+      setQuestionReady(false);
+      const timers: number[] = [];
+      let answerAt = 0;
+      if (earGuide) {
+        EAR_GUIDE_MIDIS.forEach((guideMidi, index) => {
+          timers.push(window.setTimeout(() => playMidi(guideMidi, 0.28, 0.24), index * EAR_STEP_MS));
+        });
+        answerAt = (EAR_GUIDE_MIDIS.length - 1) * EAR_STEP_MS + EAR_GAP_MS;
+      }
+      timers.push(window.setTimeout(() => playMidi(midi, 1.0, 0.26), answerAt));
+      timers.push(window.setTimeout(() => setQuestionReady(true), answerAt));
+      playbackTimersRef.current = timers;
+    },
+    [clearPlayback, earGuide],
+  );
+
   const nextQuestion = useCallback(() => {
     clearTimer();
-    if (mode === "interval") {
-      const generated = generateInterval(range, clef, allowAccidentals);
-      setQuestion(generated);
-      setOptions(intervalOptions(generated.name, allowAccidentals));
-      lastMidiRef.current = generated.lower.midi;
-    } else {
-      const generated = generateChord(range, clef, allowAccidentals, noteCount, lastMidiRef.current);
+    clearPlayback();
+    if (mode === "ear") {
+      const generated = generateEarNote(allowAccidentals, lastMidiRef.current);
       setQuestion(generated);
       lastMidiRef.current = generated.notes[0].midi;
+      startEarPlayback(generated.notes[0].midi);
+    } else {
+      setQuestionReady(true);
+      if (mode === "interval") {
+        const generated = generateInterval(range, clef, allowAccidentals);
+        setQuestion(generated);
+        setOptions(intervalOptions(generated.name, allowAccidentals));
+        lastMidiRef.current = generated.lower.midi;
+      } else {
+        const generated = generateChord(range, clef, allowAccidentals, noteCount, lastMidiRef.current);
+        setQuestion(generated);
+        lastMidiRef.current = generated.notes[0].midi;
+      }
     }
     setPressed([]);
     setPickedOption(null);
     setDone(false);
     setOk(false);
-  }, [allowAccidentals, clearTimer, clef, mode, noteCount, range]);
+  }, [allowAccidentals, clearPlayback, clearTimer, clef, mode, noteCount, range, startEarPlayback]);
 
   const finish = useCallback(
     (correct: boolean) => {
@@ -142,8 +190,10 @@ export default function App() {
 
   const answerNote = useCallback(
     (pc: number) => {
+      // 引导音/出题音还在播时忽略作答（不判定也不出声）
+      if (mode === "ear" && (done || !questionReady)) return;
       playKey(pc);
-      if (done || mode !== "note") return;
+      if (done || (mode !== "note" && mode !== "ear")) return;
       const expected = question.notes[pressed.length]?.pc;
       if (expected === undefined) return;
       if (pc === expected) {
@@ -155,7 +205,7 @@ export default function App() {
         finish(false);
       }
     },
-    [done, finish, mode, pressed, question],
+    [done, finish, mode, pressed, question, questionReady],
   );
 
   const answerInterval = useCallback(
@@ -170,7 +220,7 @@ export default function App() {
   const goNext = useCallback(() => nextQuestion(), [nextQuestion]);
 
   // 设置变化时重新出题（首次挂载沿用 createInitialRound 的题，避免闪换）
-  const settingsKey = `${mode}|${clef}|${rangeId}|${allowAccidentals}|${noteCount}`;
+  const settingsKey = `${mode}|${clef}|${rangeId}|${allowAccidentals}|${noteCount}|${earGuide}`;
   const prevSettingsRef = useRef(settingsKey);
   useEffect(() => {
     if (prevSettingsRef.current === settingsKey) return;
@@ -232,6 +282,9 @@ export default function App() {
     currentStats.total > 0 ? Math.round((currentStats.correct / currentStats.total) * 100) : 0;
 
   const idleText = (() => {
+    if (mode === "ear") {
+      return questionReady ? "听音后在钢琴键盘上弹出你听到的音" : "正在播放引导音… 请仔细听";
+    }
     if (mode === "interval") return "看谱后在下方选择两个音构成的音程";
     const action = noteCount === 1 ? "在下方钢琴键盘上作答" : `按从低到高依次按下 ${noteCount} 个音`;
     return notesHidden ? `谱面已隐藏，凭记忆${action}` : `看谱后${action}`;
@@ -272,6 +325,14 @@ export default function App() {
             >
               音程训练
             </Button>
+            <Button
+              size="sm"
+              variant={mode === "ear" ? "default" : "outline"}
+              onClick={() => setMode("ear")}
+            >
+              <Headphones className="mr-1 size-4" />
+              练耳训练
+            </Button>
             <Button size="sm" variant="ghost" disabled>
               乐句训练
               <Badge variant="secondary" className="ml-2">
@@ -300,25 +361,36 @@ export default function App() {
               allowAccidentals={allowAccidentals}
               noteCount={noteCount}
               showDuration={showDuration}
+              earGuide={earGuide}
               onClefChange={setClef}
               onRangeChange={setRangeId}
               onAccidentalsChange={setAllowAccidentals}
               onNoteCountChange={setNoteCount}
               onShowDurationChange={setShowDuration}
+              onEarGuideChange={setEarGuide}
             />
           </CardContent>
         </Card>
 
         <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
           <div className="space-y-4">
-            <StaffSheet
-              clef={clef}
-              range={range}
-              staff={question.staff}
-              notes={question.notes}
-              layout={question.layout}
-              hidden={notesHidden}
-            />
+            {mode === "ear" ? (
+              <Card className="flex min-h-[220px] flex-col items-center justify-center gap-3">
+                <span className="text-7xl font-bold leading-none text-muted-foreground/60">？</span>
+                <p className="text-sm text-muted-foreground">
+                  {questionReady ? "刚才听到的音是哪个？" : "正在播放…"}
+                </p>
+              </Card>
+            ) : (
+              <StaffSheet
+                clef={clef}
+                range={range}
+                staff={question.staff}
+                notes={question.notes}
+                layout={question.layout}
+                hidden={notesHidden}
+              />
+            )}
 
             <Card
               className={
@@ -356,7 +428,7 @@ export default function App() {
 
             <Card>
               <CardContent className="pt-5">
-                {mode === "note" ? (
+                {mode === "note" || mode === "ear" ? (
                   <PianoKeyboard
                     targets={question.notes.map((item) => item.pc)}
                     pressed={pressed}
@@ -404,9 +476,9 @@ export default function App() {
                   <Stat label="最佳连击" value={String(currentStats.best)} />
                 </div>
                 <div className="rounded-md bg-muted px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                  {mode === "note"
-                    ? "快捷键：白键 A S D F G H J，黑键 W E T Y U，空格跳到下一题。"
-                    : "快捷键：选项 1 2 3 4，空格跳到下一题。"}
+                  {mode === "interval"
+                    ? "快捷键：选项 1 2 3 4，空格跳到下一题。"
+                    : "快捷键：白键 A S D F G H J，黑键 W E T Y U，空格跳到下一题。"}
                 </div>
               </CardContent>
             </Card>

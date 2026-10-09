@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { MAX_NOTES, RANGES, type Clef } from "@/lib/music/theory";
 
-export type TrainMode = "note" | "interval";
+export type TrainMode = "note" | "interval" | "ear";
 
 interface SettingsPanelProps {
   mode: TrainMode;
@@ -21,11 +21,14 @@ interface SettingsPanelProps {
   noteCount: number;
   /** 音符显示时长（秒）的原始输入，空串/0 表示一直显示 */
   showDuration: string;
+  /** 练耳模式：是否每题播放引导音（标准音 + 音阶） */
+  earGuide: boolean;
   onClefChange: (clef: Clef) => void;
   onRangeChange: (rangeId: string) => void;
   onAccidentalsChange: (value: boolean) => void;
   onNoteCountChange: (value: number) => void;
   onShowDurationChange: (value: string) => void;
+  onEarGuideChange: (value: boolean) => void;
 }
 
 export function SettingsPanel({
@@ -35,11 +38,13 @@ export function SettingsPanel({
   allowAccidentals,
   noteCount,
   showDuration,
+  earGuide,
   onClefChange,
   onRangeChange,
   onAccidentalsChange,
   onNoteCountChange,
   onShowDurationChange,
+  onEarGuideChange,
 }: SettingsPanelProps) {
   const ranges = RANGES[clef];
   const parsedDuration = Number.parseFloat(showDuration);
@@ -47,48 +52,52 @@ export function SettingsPanel({
 
   return (
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
-      <div className="space-y-2">
-        <Label>谱号</Label>
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="default"
-          value={clef}
-          onValueChange={(value) => {
-            if (!value) return;
-            const next = value as Clef;
-            onClefChange(next);
-            onRangeChange(RANGES[next][0].id);
-          }}
-          className="w-full justify-stretch"
-        >
-          <ToggleGroupItem value="treble" className="flex-1">
-            高音
-          </ToggleGroupItem>
-          <ToggleGroupItem value="bass" className="flex-1">
-            低音
-          </ToggleGroupItem>
-          <ToggleGroupItem value="grand" className="flex-1">
-            大谱表
-          </ToggleGroupItem>
-        </ToggleGroup>
-      </div>
+      {mode !== "ear" && (
+        <div className="space-y-2">
+          <Label>谱号</Label>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="default"
+            value={clef}
+            onValueChange={(value) => {
+              if (!value) return;
+              const next = value as Clef;
+              onClefChange(next);
+              onRangeChange(RANGES[next][0].id);
+            }}
+            className="w-full justify-stretch"
+          >
+            <ToggleGroupItem value="treble" className="flex-1">
+              高音
+            </ToggleGroupItem>
+            <ToggleGroupItem value="bass" className="flex-1">
+              低音
+            </ToggleGroupItem>
+            <ToggleGroupItem value="grand" className="flex-1">
+              大谱表
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+      )}
 
-      <div className="space-y-2">
-        <Label htmlFor="range-select">音的范围</Label>
-        <Select value={rangeId} onValueChange={onRangeChange}>
-          <SelectTrigger id="range-select" className="w-full min-w-0">
-            <SelectValue className="truncate" placeholder="选择音域" />
-          </SelectTrigger>
-          <SelectContent>
-            {ranges.map((range) => (
-              <SelectItem key={range.id} value={range.id}>
-                {range.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {mode !== "ear" && (
+        <div className="space-y-2">
+          <Label htmlFor="range-select">音的范围</Label>
+          <Select value={rangeId} onValueChange={onRangeChange}>
+            <SelectTrigger id="range-select" className="w-full min-w-0">
+              <SelectValue className="truncate" placeholder="选择音域" />
+            </SelectTrigger>
+            <SelectContent>
+              {ranges.map((range) => (
+                <SelectItem key={range.id} value={range.id}>
+                  {range.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label htmlFor="accidentals-switch">升降号</Label>
@@ -142,6 +151,26 @@ export function SettingsPanel({
             <p className="text-xs text-muted-foreground">
               {showDurationSec > 0 ? `音符显示 ${showDurationSec} 秒后隐藏` : "留空或 0 = 一直显示"}
             </p>
+          </div>
+        </>
+      ) : mode === "ear" ? (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor="ear-guide-switch">引导音</Label>
+            <div className="flex h-9 items-center justify-between rounded-md border border-input px-3">
+              <span className="text-sm">每题播放音阶引导</span>
+              <Switch id="ear-guide-switch" checked={earGuide} onCheckedChange={onEarGuideChange} />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {earGuide ? "标准音 la → la ti do re mi fa sol la" : "只播要猜的那个音"}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>作答范围</Label>
+            <div className="flex h-9 items-center rounded-md border border-input px-3 text-sm text-muted-foreground">
+              C4 – B4（与键盘一致）
+            </div>
           </div>
         </>
       ) : (

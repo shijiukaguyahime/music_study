@@ -383,6 +383,25 @@ export function generateInterval(range: Range, clef: Clef, allowAccidentals: boo
   return build(lower, upper, name);
 }
 
+/* ---------------- 练耳（相对音感） ---------------- */
+
+/** 练耳作答范围：C4 – B4，和屏幕上的钢琴键盘一一对应 */
+export const EAR_LO = 60;
+export const EAR_HI = 71;
+
+/**
+ * 每题开头依次播放的引导音（midi）：
+ * 标准音 la(A4=440) → 从 la 起的音阶 la ti do re mi fa sol la（A3 → A4）→ 回到 la la。
+ * 想改长度/音区只要改这个数组。
+ */
+export const EAR_GUIDE_MIDIS: number[] = [69, 57, 59, 60, 62, 64, 65, 67, 69, 69, 69];
+
+/** 练耳出题：C4–B4 里随机一个音，升降号开关决定是否含黑键 */
+export function generateEarNote(allowAccidentals: boolean, exclude?: number): Question {
+  const midi = randomMidi(EAR_LO, EAR_HI, allowAccidentals, exclude);
+  return { staff: "treble", notes: [spell(midi, allowAccidentals)], layout: "chord" };
+}
+
 /* ---------------- 展示 ---------------- */
 
 /** VexFlow 用的 key，例如 c#4 / eb3 */

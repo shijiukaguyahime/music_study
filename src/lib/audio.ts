@@ -1,6 +1,6 @@
 let audioContext: AudioContext | null = null;
 
-function getAudioContext(): AudioContext | null {
+export function getAudioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
   const Ctor: typeof AudioContext | undefined =
     window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -52,4 +52,34 @@ export function playMidi(midi: number, duration = 1.1, gain = 0.2) {
 /** 播放钢琴键盘上的一个键（按音级，固定在 C4–B4 这一组） */
 export function playKey(pc: number) {
   playMidi(60 + pc, 1.0, 0.22);
+}
+
+/**
+ * 节拍器点击声：在指定的 AudioContext 时间点响一下（提前调度用）。
+ * accent = 强拍，音更高更响。
+ */
+export function scheduleClick(time: number, accent = false) {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const freq = accent ? 1760 : 1174;
+  const gain = accent ? 0.34 : 0.22;
+
+  for (const [multiple, level] of [
+    [1, 1],
+    [2.01, 0.32],
+  ] as const) {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq * multiple, time);
+
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.exponentialRampToValueAtTime(level * gain, time + 0.003);
+    env.gain.exponentialRampToValueAtTime(0.0001, time + 0.05);
+
+    osc.connect(env);
+    env.connect(ctx.destination);
+    osc.start(time);
+    osc.stop(time + 0.07);
+  }
 }

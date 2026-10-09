@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Circle, RotateCcw, XCircle } from "lucide-react";
+import { CheckCircle2, Circle, RotateCcw, Timer, XCircle } from "lucide-react";
 import { IntervalOptions } from "@/components/IntervalOptions";
+import { Metronome } from "@/components/Metronome";
 import { PianoKeyboard } from "@/components/PianoKeyboard";
 import { SettingsPanel, type TrainMode } from "@/components/SettingsPanel";
 import { StaffSheet } from "@/components/StaffSheet";
@@ -68,6 +69,7 @@ export default function App() {
   const [noteCount, setNoteCount] = useState(DEFAULT_NOTE_COUNT);
   const [showDuration, setShowDuration] = useState("");
   const [notesHidden, setNotesHidden] = useState(false);
+  const [metronomeOpen, setMetronomeOpen] = useState(false);
 
   const [question, setQuestion] = useState<Question>(initial.question);
   const [options, setOptions] = useState<string[]>(initial.options);
@@ -276,6 +278,14 @@ export default function App() {
                 即将上线
               </Badge>
             </Button>
+            <Button
+              size="sm"
+              variant={metronomeOpen ? "default" : "outline"}
+              onClick={() => setMetronomeOpen((value) => !value)}
+            >
+              <Timer className="mr-1 size-4" />
+              节拍器
+            </Button>
           </div>
         </div>
       </header>
@@ -403,6 +413,8 @@ export default function App() {
           </div>
         </div>
       </main>
+
+      <Metronome open={metronomeOpen} onClose={() => setMetronomeOpen(false)} />
     </div>
   );
 }

@@ -397,7 +397,7 @@ export interface EarGuideNote {
 }
 
 /** 引导节奏 BPM（四分音符 = 60/BPM 秒） */
-export const EAR_GUIDE_BPM = 60;
+export const EAR_GUIDE_BPM = 90;
 
 const EAR_BEAT = 60 / EAR_GUIDE_BPM; // 四分 = 1s
 const EAR_EIGHTH = EAR_BEAT / 2; // 八分 = 0.5s
@@ -495,3 +495,25 @@ export const KEY_HINTS: Record<string, number> = {
   u: 10,
   j: 11,
 };
+
+/** 所在八度组的根（该组的 C）：60-71→60，72-83→72，48-59→48 … */
+export function octaveGroupRoot(midi: number): number {
+  return 60 + 12 * Math.floor((midi - 60) / 12);
+}
+
+const SHARP_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
+
+/** 完整音高的显示名，如 C4 / F♯5 */
+export function midiLabel(midi: number): string {
+  return `${SHARP_NAMES[pcOf(midi)]}${Math.floor(midi / 12) - 1}`;
+}
+
+/**
+ * 把快捷字母解析成要按下的完整音高。
+ * 键盘显示区 [lo, hi] 恒为完整八度组（lo 为组根，hi = lo + 12k + 11）：
+ * 优先对齐待答音 expected 的八度，否则取显示区内最低的同音级。
+ */
+export function shortcutMidi(pc: number, lo: number, hi: number, expected?: number): number {
+  if (expected !== undefined && pcOf(expected) === pc && expected >= lo && expected <= hi) return expected;
+  return lo + pc;
+}

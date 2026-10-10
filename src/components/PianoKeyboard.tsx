@@ -1,30 +1,36 @@
 import { cn } from "cn";
-import { BLACK_PCS, KEY_HINTS, PC_NAMES, WHITE_PCS } from "@/lib/music/theory";
-
-// 黑键位于第 n 个白键之后（0-based 白键序号）
-const BLACK_AFTER_WHITE: Record<number, number> = { 1: 1, 3: 2, 6: 4, 8: 5, 10: 6 };
+import { KEY_HINTS, WHITE_PCS, midiLabel, pcOf } from "@/lib/music/theory";
 
 const SHORTCUT_BY_PC: Record<number, string> = Object.fromEntries(
   Object.entries(KEY_HINTS).map(([k, pc]) => [pc, k.toUpperCase()]),
 );
 
 interface PianoKeyboardProps {
-  /** 本题要依次按下的音级（正确答案，顺序即作答顺序） */
+  /** 本题要依次按下的完整音高（正确答案，顺序即作答顺序） */
   targets: number[];
-  /** 本轮已经按下的音级 */
+  /** 本轮已经按下的完整音高 */
   pressed: number[];
+  /** 显示区 [lo, hi]，恒为完整八度组（单音一组，跨组两组并排） */
+  span: [number, number];
   /** 作答已结束 */
   revealed: boolean;
-  onPick: (pc: number) => void;
+  onPick: (midi: number) => void;
 }
 
 type KeyState = "idle" | "pressed" | "correct" | "wrong";
 
-export function PianoKeyboard({ targets, pressed, revealed, onPick }: PianoKeyboardProps) {
-  const stateOf = (pc: number): KeyState => {
-    const wasPressed = pressed.includes(pc);
-    if (wasPressed) return targets.includes(pc) ? "correct" : "wrong";
-    if (revealed) return targets.includes(pc) ? "correct" : "idle";
+export function PianoKeyboard({ targets, pressed, span, revealed, onPick }: PianoKeyboardProps) {
+  const [lo, hi] = span;
+  const whites: number[] = [];
+  const blacks: number[] = [];
+  for (let midi = lo; midi <= hi; midi += 1) {
+    (WHITE_PCS.includes(pcOf(midi)) ? whites : blacks).push(midi);
+  }
+
+  const stateOf = (midi: number): KeyState => {
+    const wasPressed = pressed.includes(midi);
+    if (wasPressed) return targets.includes(midi) ? "correct" : "wrong";
+    if (revealed) return targets.includes(midi) ? "correct" : "idle";
     return "idle";
   };
 
@@ -51,7 +57,7 @@ export function PianoKeyboard({ targets, pressed, revealed, onPick }: PianoKeybo
       state === "wrong" && "border-red-400 bg-red-600 text-white hover:bg-red-600",
     );
 
-  const answerText = targets.map((pc) => PC_NAMES[pc]).join(" → ");
+  const answerText = targets.map(midiLabel).join(" → ");
 
   return (
     <div className="w-full">
@@ -59,47 +65,50 @@ export function PianoKeyboard({ targets, pressed, revealed, onPick }: PianoKeybo
         className="relative flex h-[clamp(150px,24vw,200px)] w-full touch-manipulation"
         style={
           {
-            "--wk": "calc(100% / 7)",
+            "--wk": `calc(100% / ${whites.length})`,
             "--bk": "calc(var(--wk) * 0.62)",
           } as React.CSSProperties
         }
         role="group"
-        aria-label="钢琴键盘，共 12 个音"
+        aria-label={`钢琴键盘，共 ${whites.length + blacks.length} 个音`}
       >
-        {WHITE_PCS.map((pc) => {
-          const state = stateOf(pc);
+        {whites.map((midi) => {
+          const state = stateOf(midi);
           return (
             <button
-              key={pc}
+              key={midi}
               type="button"
-              onClick={() => onPick(pc)}
+              onClick={() => onPick(midi)}
               className={whiteClass(state)}
-              aria-label={PC_NAMES[pc]}
-              data-pc={pc}
+              aria-label={midiLabel(midi)}
+              data-midi={midi}
+              data-pc={pcOf(midi)}
             >
               <span className="text-[10px] tabular-nums text-neutral-400">
-                {SHORTCUT_BY_PC[pc]}
+                {SHORTCUT_BY_PC[pcOf(midi)]}
               </span>
-              <span className="text-sm font-semibold tracking-wide">{PC_NAMES[pc]}</span>
+              <span className="text-sm font-semibold tracking-wide">{midiLabel(midi)}</span>
             </button>
           );
         })}
 
-        {BLACK_PCS.map((pc) => {
-          const state = stateOf(pc);
-          const left = BLACK_AFTER_WHITE[pc];
+        {blacks.map((midi) => {
+          const state = stateOf(midi);
+          // 黑键位于「左侧白键数」的边界上
+          const left = whites.filter((white) => white < midi).length;
           return (
             <button
-              key={pc}
+              key={midi}
               type="button"
-              onClick={() => onPick(pc)}
+              onClick={() => onPick(midi)}
               className={blackClass(state)}
               style={{ left: `calc(var(--wk) * ${left} - var(--bk) / 2)`, width: "var(--bk)" }}
-              aria-label={PC_NAMES[pc]}
-              data-pc={pc}
+              aria-label={midiLabel(midi)}
+              data-midi={midi}
+              data-pc={pcOf(midi)}
             >
               <span className="text-[9px] tabular-nums text-neutral-500">
-                {SHORTCUT_BY_PC[pc]}
+                {SHORTCUT_BY_PC[pcOf(midi)]}
               </span>
             </button>
           );

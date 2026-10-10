@@ -84,9 +84,13 @@ export function stopAllNotes() {
   activeVoices.clear();
 }
 
-/** 播放一段采样：到时值末尾后快速淡出，做到断奏/抬键可控 */
-function playSample(ctx: AudioContext, buffer: AudioBuffer, midi: number, duration: number, gain: number, t0: number) {
-  const source = trackVoice(ctx.createBufferSource());
+/**
+ * 播放一段采样：到时值末尾后快速淡出，做到断奏/抬键可控。
+ * managed=false 时不纳入 stopAllNotes（作答反馈音），切下一题也自然响完。
+ */
+function playSample(ctx: AudioContext, buffer: AudioBuffer, midi: number, duration: number, gain: number, t0: number, managed: boolean) {
+  const raw = ctx.createBufferSource();
+  const source = managed ? trackVoice(raw) : raw;
   source.buffer = buffer;
   const env = ctx.createGain();
   const out = ctx.createGain();
@@ -131,7 +135,7 @@ function getNoiseBuffer(ctx: AudioContext): AudioBuffer {
   return noiseBuffer;
 }
 
-function synthNote(ctx: AudioContext, midi: number, duration: number, gain: number, t0: number) {
+function synthNote(ctx: AudioContext, midi: number, duration: number, gain: number, t0: number, managed: boolean) {
   const f0 = 440 * Math.pow(2, (midi - 69) / 12);
   const out = ctx.createGain();
   out.gain.value = gain;
@@ -144,7 +148,8 @@ function synthNote(ctx: AudioContext, midi: number, duration: number, gain: numb
   for (const [n, level, decayScale] of SYNTH_PARTIALS) {
     const freq = n * f0 * Math.sqrt(1 + INHARMONICITY * n * n);
     if (freq > ctx.sampleRate / 2 - 200) break;
-    const osc = trackVoice(ctx.createOscillator());
+    const rawOsc = ctx.createOscillator();
+    const osc = managed ? trackVoice(rawOsc) : rawOsc;
     osc.type = "sine";
     osc.frequency.setValueAtTime(freq, t0);
     const env = ctx.createGain();
@@ -157,7 +162,8 @@ function synthNote(ctx: AudioContext, midi: number, duration: number, gain: numb
   }
 
   // 击弦瞬态
-  const noise = trackVoice(ctx.createBufferSource());
+  const rawNoise = ctx.createBufferSource();
+  const noise = managed ? trackVoice(rawNoise) : rawNoise;
   noise.buffer = getNoiseBuffer(ctx);
   const hp = ctx.createBiquadFilter();
   hp.type = "highpass";
@@ -170,23 +176,23 @@ function synthNote(ctx: AudioContext, midi: number, duration: number, gain: numb
   noise.start(t0);
 }
 
-/** 播放一个 MIDI 音高（60 = 中央C）。when 给定时按 AudioContext 时间精确排程 */
-export function playMidi(midi: number, duration = 1.1, gain = 0.2, when?: number) {
+/** 播放一个 MIDI 音高（60 = 中央C）。when 给定时按 AudioContext 时间精确排程；managed=false 时切题不会被停掉 */
+export function playMidi(midi: number, duration = 1.1, gain = 0.2, when?: number, managed = true) {
   const ctx = getAudioContext();
   if (!ctx) return;
   const t0 = when !== undefined ? Math.max(when, ctx.currentTime) : ctx.currentTime;
   const rounded = Math.round(midi);
   const buffer = sampleBuffers.get(rounded);
   if (buffer) {
-    playSample(ctx, buffer, rounded, duration, gain, t0);
+    playSample(ctx, buffer, rounded, duration, gain, t0, managed);
     return;
   }
-  synthNote(ctx, midi, duration, gain, t0);
+  synthNote(ctx, midi, duration, gain, t0, managed);
 }
 
-/** 播放钢琴键盘上的一个键（按音级，固定在 C4–B4 这一组） */
-export function playKey(pc: number) {
-  playMidi(60 + pc, 1.0, 0.22);
+/** 播放钢琴键盘上的一个键（按完整音高，真实八度）。作答反馈音，切下一题时不中断 */
+export function playKey(midi: number) {
+  playMidi(midi, 1.0, 0.22, undefined, false);
 }
 
 /**

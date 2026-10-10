@@ -20,6 +20,8 @@ import {
   generateInterval,
   intervalOptions,
   noteName,
+  octaveGroupRoot,
+  shortcutMidi,
   solfege,
   type Clef,
   type IntervalQuestion,
@@ -115,7 +117,7 @@ export default function App() {
   // 卸载时停掉还在排程的播放
   useEffect(() => () => clearPlayback(), [clearPlayback]);
 
-  /** 练耳：按 BPM 60 节奏一次性排好引导音，出题音在引导结束后响起即可作答 */
+  /** 练耳：按 EAR_GUIDE_BPM 节奏一次性排好引导音，出题音在引导结束后响起即可作答 */
   const startEarPlayback = useCallback(
     (midi: number) => {
       clearPlayback();
@@ -190,19 +192,19 @@ export default function App() {
   );
 
   const answerNote = useCallback(
-    (pc: number) => {
+    (midi: number) => {
       // 引导音/出题音还在播时忽略作答（不判定也不出声）
       if (mode === "ear" && (done || !questionReady)) return;
-      playKey(pc);
+      playKey(midi);
       if (done || (mode !== "note" && mode !== "ear")) return;
-      const expected = question.notes[pressed.length]?.pc;
+      const expected = question.notes[pressed.length]?.midi;
       if (expected === undefined) return;
-      if (pc === expected) {
-        const next = [...pressed, pc];
+      if (midi === expected) {
+        const next = [...pressed, midi];
         setPressed(next);
         if (next.length >= question.notes.length) finish(true);
       } else {
-        setPressed([...pressed, pc]);
+        setPressed([...pressed, midi]);
         finish(false);
       }
     },
@@ -243,6 +245,14 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [done, mode, hideAfter, question]);
 
+  /** 键盘显示区：按题目最低/最高音所在八度组展开（单音一个组，跨组则两组并排；练耳题恒 C4 组） */
+  const keyboardSpan = useMemo<[number, number]>(() => {
+    const midis = question.notes.map((item) => item.midi);
+    const lo = octaveGroupRoot(Math.min(...midis));
+    const hi = octaveGroupRoot(Math.max(...midis)) + 11;
+    return [lo, hi];
+  }, [question]);
+
   const handlerRef = useRef<(event: KeyboardEvent) => void>(() => {});
   handlerRef.current = (event: KeyboardEvent) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -265,7 +275,8 @@ export default function App() {
     const pc = KEY_HINTS[key];
     if (pc !== undefined) {
       event.preventDefault();
-      answerNote(pc);
+      // 屏上有两个同音级键时自动对齐待答音的八度
+      answerNote(shortcutMidi(pc, keyboardSpan[0], keyboardSpan[1], question.notes[pressed.length]?.midi));
     }
   };
 
@@ -431,8 +442,9 @@ export default function App() {
               <CardContent className="pt-5">
                 {mode === "note" || mode === "ear" ? (
                   <PianoKeyboard
-                    targets={question.notes.map((item) => item.pc)}
+                    targets={question.notes.map((item) => item.midi)}
                     pressed={pressed}
+                    span={keyboardSpan}
                     revealed={revealed}
                     onPick={answerNote}
                   />

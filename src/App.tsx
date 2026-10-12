@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Circle, Headphones, RotateCcw, Timer, XCircle } from "lucide-react";
+import { ChordOptions } from "@/components/ChordOptions";
 import { IntervalOptions } from "@/components/IntervalOptions";
 import { Metronome } from "@/components/Metronome";
 import { PianoKeyboard } from "@/components/PianoKeyboard";
-import { SettingsPanel, type TrainMode } from "@/components/SettingsPanel";
+import {
+  SettingsPanel,
+  type ChordScope,
+  type ChordTask,
+  type TrainMode,
+} from "@/components/SettingsPanel";
 import { StaffSheet } from "@/components/StaffSheet";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getAudioContext, playKey, playMidi, preloadPiano, stopAllNotes } from "@/lib/audio";
@@ -28,6 +33,17 @@ import {
   type IntervalQuestion,
   type Question,
 } from "@/lib/music/theory";
+import {
+  chordAnswerText,
+  chordPromptDesc,
+  degreePool,
+  generateChordQuestion,
+  qualityPool,
+  sampleOptions,
+  type ChordModeId,
+  type ChordQuestion,
+  type ChordQualityId,
+} from "@/lib/music/chord";
 
 interface Stats {
   total: number;
@@ -40,6 +56,10 @@ const EMPTY_STATS: Stats = { total: 0, correct: 0, streak: 0, best: 0 };
 
 function isIntervalQuestion(question: Question): question is IntervalQuestion {
   return "name" in question;
+}
+
+function isChordQuestion(question: Question): question is ChordQuestion {
+  return "quality" in question;
 }
 
 const DEFAULT_CLEF: Clef = "treble";
@@ -80,6 +100,17 @@ export default function App() {
   /** 练耳：引导音/出题音还在播放时为 false，播放期间不接受作答 */
   const [questionReady, setQuestionReady] = useState(true);
 
+  const [chordMode, setChordMode] = useState<ChordModeId>("major");
+  const [chordRootPc, setChordRootPc] = useState(0);
+  const [chordTask, setChordTask] = useState<ChordTask>("identify");
+  const [chordDiatonic, setChordDiatonic] = useState(true);
+  const [chordScope, setChordScope] = useState<ChordScope>("both");
+  const [chordInversions, setChordInversions] = useState(true);
+  const [qualityOptions, setQualityOptions] = useState<ChordQualityId[]>([]);
+  const [degreeOptions, setDegreeOptions] = useState<string[]>([]);
+  const [pickedQuality, setPickedQuality] = useState<ChordQualityId | null>(null);
+  const [pickedDegree, setPickedDegree] = useState<string | null>(null);
+
   const [question, setQuestion] = useState<Question>(initial.question);
   const [options, setOptions] = useState<string[]>(initial.options);
   const [pressed, setPressed] = useState<number[]>(initial.pressed);
@@ -90,6 +121,7 @@ export default function App() {
     note: EMPTY_STATS,
     interval: EMPTY_STATS,
     ear: EMPTY_STATS,
+    chord: EMPTY_STATS,
   });
 
   const timerRef = useRef<number | null>(null);
@@ -155,6 +187,21 @@ export default function App() {
         setQuestion(generated);
         setOptions(intervalOptions(generated.name, allowAccidentals));
         lastMidiRef.current = generated.lower.midi;
+      } else if (mode === "chord") {
+        const generated = generateChordQuestion({
+          diatonic: chordDiatonic,
+          key: { mode: chordMode, rootPc: chordRootPc },
+          scope: chordScope,
+          allowInversions: chordInversions,
+          range,
+          clef,
+        });
+        setQuestion(generated);
+        setQualityOptions(qualityPool(generated.isSeventh));
+        setDegreeOptions(
+          generated.key && generated.degree ? sampleOptions(generated.degree, degreePool(generated.key, generated.isSeventh, chordInversions)) : [],
+        );
+        lastMidiRef.current = generated.notes[0].midi;
       } else {
         const generated = generateChord(range, clef, allowAccidentals, noteCount, lastMidiRef.current);
         setQuestion(generated);
@@ -163,9 +210,25 @@ export default function App() {
     }
     setPressed([]);
     setPickedOption(null);
+    setPickedQuality(null);
+    setPickedDegree(null);
     setDone(false);
     setOk(false);
-  }, [allowAccidentals, clearPlayback, clearTimer, clef, mode, noteCount, range, startEarPlayback]);
+  }, [
+    allowAccidentals,
+    chordDiatonic,
+    chordInversions,
+    chordMode,
+    chordRootPc,
+    chordScope,
+    clearPlayback,
+    clearTimer,
+    clef,
+    mode,
+    noteCount,
+    range,
+    startEarPlayback,
+  ]);
 
   const finish = useCallback(
     (correct: boolean) => {
@@ -197,7 +260,9 @@ export default function App() {
       // 引导音/出题音还在播时忽略作答（不判定也不出声）
       if (mode === "ear" && (done || !questionReady)) return;
       playKey(midi);
-      if (done || (mode !== "note" && mode !== "ear")) return;
+      const playable =
+        mode === "note" || mode === "ear" || (mode === "chord" && chordTask === "play");
+      if (done || !playable) return;
       // 已按过的正确音：忽略判定（只出声），允许多音题任意顺序作答
       if (pressed.includes(midi)) return;
       const isTarget = question.notes.some((item) => item.midi === midi);
@@ -209,7 +274,7 @@ export default function App() {
       }
       if (next.length >= question.notes.length) finish(true);
     },
-    [done, finish, mode, pressed, question, questionReady],
+    [chordTask, done, finish, mode, pressed, question, questionReady],
   );
 
   const answerInterval = useCallback(
@@ -221,10 +286,28 @@ export default function App() {
     [done, finish, mode, question],
   );
 
+  const answerChordQuality = useCallback(
+    (id: ChordQualityId) => {
+      if (done || mode !== "chord" || !isChordQuestion(question)) return;
+      setPickedQuality(id);
+      if (!question.key) finish(id === question.quality);
+    },
+    [done, finish, mode, question],
+  );
+
+  const answerChordDegree = useCallback(
+    (label: string) => {
+      if (done || mode !== "chord" || !isChordQuestion(question) || !pickedQuality) return;
+      setPickedDegree(label);
+      finish(pickedQuality === question.quality && label === question.degree);
+    },
+    [done, finish, mode, pickedQuality, question],
+  );
+
   const goNext = useCallback(() => nextQuestion(), [nextQuestion]);
 
   // 设置变化时重新出题（首次挂载沿用 createInitialRound 的题，避免闪换）
-  const settingsKey = `${mode}|${clef}|${rangeId}|${allowAccidentals}|${noteCount}|${earGuide}`;
+  const settingsKey = `${mode}|${clef}|${rangeId}|${allowAccidentals}|${noteCount}|${earGuide}|${chordMode}|${chordRootPc}|${chordTask}|${chordDiatonic}|${chordScope}|${chordInversions}`;
   const prevSettingsRef = useRef(settingsKey);
   useEffect(() => {
     if (prevSettingsRef.current === settingsKey) return;
@@ -273,8 +356,28 @@ export default function App() {
       }
       return;
     }
+    if (mode === "chord" && chordTask === "identify" && key >= "1" && key <= "9") {
+      const index = Number(key) - 1;
+      if (!pickedQuality) {
+        const id = qualityOptions[index];
+        if (id) {
+          event.preventDefault();
+          answerChordQuality(id);
+        }
+      } else if (!pickedDegree && degreeOptions.length > 0) {
+        const label = degreeOptions[index];
+        if (label) {
+          event.preventDefault();
+          answerChordDegree(label);
+        }
+      }
+      return;
+    }
     const pc = KEY_HINTS[key];
     if (pc !== undefined) {
+      const playable =
+        mode === "note" || mode === "ear" || (mode === "chord" && chordTask === "play");
+      if (!playable) return;
       event.preventDefault();
       // 屏上有两个同音级键时对齐「还没按过的」待答音八度
       const nextTarget = question.notes
@@ -293,6 +396,7 @@ export default function App() {
   const currentStats = stats[mode];
   const revealed = done;
   const interval = isIntervalQuestion(question) ? question : null;
+  const chord = mode === "chord" && isChordQuestion(question) ? question : null;
   const noteNames = question.notes.map(noteName);
   const accuracy =
     currentStats.total > 0 ? Math.round((currentStats.correct / currentStats.total) * 100) : 0;
@@ -302,6 +406,10 @@ export default function App() {
       return questionReady ? "听音后在钢琴键盘上弹出你听到的音" : "正在播放引导音… 请仔细听";
     }
     if (mode === "interval") return "看谱后在下方选择两个音构成的音程";
+    if (mode === "chord") {
+      if (chordTask === "play") return "看标记，在钢琴键盘上弹出该和弦的音（顺序不限）";
+      return chordDiatonic ? "看谱后先选和弦性质，再选调内级数" : "看谱后选择和弦性质";
+    }
     const action = noteCount === 1 ? "在下方钢琴键盘上作答" : `弹出全部 ${noteCount} 个音（顺序不限）`;
     return notesHidden ? `谱面已隐藏，凭记忆${action}` : `看谱后${action}`;
   })();
@@ -310,6 +418,15 @@ export default function App() {
     if (mode === "interval" && interval) {
       const pair = `${noteName(interval.lower)} → ${noteName(interval.upper)}`;
       return ok ? `回答正确：${pair} 是 ${interval.name}` : `答错了，正确答案是 ${interval.name}（${pair}）`;
+    }
+    if (mode === "chord" && chord) {
+      if (chordTask === "play") {
+        const answer = `${chordAnswerText(chord)}，音：${noteNames.join(" ")}`;
+        return ok ? `回答正确：${answer}` : `答错了，正确答案是 ${answer}`;
+      }
+      const detail = chordAnswerText(chord);
+      const answer = chord.key ? `${chord.qualityName} · ${detail}` : detail;
+      return ok ? `回答正确：${answer}` : `答错了，正确答案是 ${answer}`;
     }
     const answer =
       noteNames.length === 1
@@ -349,11 +466,12 @@ export default function App() {
               <Headphones className="mr-1 size-4" />
               练耳训练
             </Button>
-            <Button size="sm" variant="ghost" disabled>
-              乐句训练
-              <Badge variant="secondary" className="ml-2">
-                即将上线
-              </Badge>
+            <Button
+              size="sm"
+              variant={mode === "chord" ? "default" : "outline"}
+              onClick={() => setMode("chord")}
+            >
+              和弦训练
             </Button>
             <Button
               size="sm"
@@ -378,12 +496,24 @@ export default function App() {
               noteCount={noteCount}
               showDuration={showDuration}
               earGuide={earGuide}
+              chordMode={chordMode}
+              chordRootPc={chordRootPc}
+              chordTask={chordTask}
+              chordDiatonic={chordDiatonic}
+              chordScope={chordScope}
+              chordInversions={chordInversions}
               onClefChange={setClef}
               onRangeChange={setRangeId}
               onAccidentalsChange={setAllowAccidentals}
               onNoteCountChange={setNoteCount}
               onShowDurationChange={setShowDuration}
               onEarGuideChange={setEarGuide}
+              onChordModeChange={setChordMode}
+              onChordRootChange={setChordRootPc}
+              onChordTaskChange={setChordTask}
+              onChordDiatonicChange={setChordDiatonic}
+              onChordScopeChange={setChordScope}
+              onChordInversionsChange={setChordInversions}
             />
           </CardContent>
         </Card>
@@ -396,6 +526,11 @@ export default function App() {
                 <p className="text-sm text-muted-foreground">
                   {questionReady ? "刚才听到的音是哪个？" : "正在播放…"}
                 </p>
+              </Card>
+            ) : mode === "chord" && chordTask === "play" && chord ? (
+              <Card className="flex min-h-[220px] flex-col items-center justify-center gap-3">
+                <span className="text-5xl font-bold tracking-wide">{chord.symbol}</span>
+                <p className="text-sm text-muted-foreground">{chordPromptDesc(chord)}</p>
               </Card>
             ) : (
               <StaffSheet
@@ -444,7 +579,7 @@ export default function App() {
 
             <Card>
               <CardContent className="pt-5">
-                {mode === "note" || mode === "ear" ? (
+                {mode === "note" || mode === "ear" || (mode === "chord" && chordTask === "play") ? (
                   <PianoKeyboard
                     targets={question.notes.map((item) => item.midi)}
                     pressed={pressed}
@@ -452,13 +587,26 @@ export default function App() {
                     revealed={revealed}
                     onPick={answerNote}
                   />
-                ) : interval ? (
+                ) : mode === "interval" && interval ? (
                   <IntervalOptions
                     options={options}
                     correct={interval.name}
                     picked={pickedOption}
                     revealed={revealed}
                     onPick={answerInterval}
+                  />
+                ) : mode === "chord" && chord ? (
+                  <ChordOptions
+                    qualityOptions={qualityOptions}
+                    degreeOptions={degreeOptions}
+                    correctQuality={chord.quality}
+                    correctDegree={chord.degree}
+                    pickedQuality={pickedQuality}
+                    pickedDegree={pickedDegree}
+                    showDegree={!!chord.key}
+                    revealed={revealed}
+                    onPickQuality={answerChordQuality}
+                    onPickDegree={answerChordDegree}
                   />
                 ) : null}
               </CardContent>
@@ -493,7 +641,7 @@ export default function App() {
                   <Stat label="最佳连击" value={String(currentStats.best)} />
                 </div>
                 <div className="rounded-md bg-muted px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                  {mode === "interval"
+                  {mode === "interval" || (mode === "chord" && chordTask === "identify")
                     ? "快捷键：选项 1 2 3 4，空格跳到下一题。"
                     : "快捷键：白键 A S D F G H J，黑键 W E T Y U，空格跳到下一题。"}
                 </div>

@@ -206,13 +206,13 @@ export function playKey(midi: number) {
 
 /**
  * 节拍器点击声：在指定的 AudioContext 时间点响一下（提前调度用）。
- * accent = 强拍，音更高更响。
+ * accent = 强拍，音更高更响；volume = 总音量 0–1（UI 音量条）。
  */
-export function scheduleClick(time: number, accent = false) {
+export function scheduleClick(time: number, accent = false, volume = 1) {
   const ctx = getAudioContext();
   if (!ctx) return;
   const freq = accent ? 1760 : 1174;
-  const gain = accent ? 0.34 : 0.22;
+  const gain = (accent ? 0.52 : 0.34) * volume;
 
   for (const [multiple, level] of [
     [1, 1],

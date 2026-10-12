@@ -133,7 +133,7 @@ export function SettingsPanel({
               ))}
             </ToggleGroup>
             <p className="text-xs text-muted-foreground">
-              {noteCount === 1 ? "认出单个音" : `${noteCount} 个音，从低到高依次按下`}
+              {noteCount === 1 ? "认出单个音" : `${noteCount} 个音，顺序不限，全部弹出`}
             </p>
           </div>
 

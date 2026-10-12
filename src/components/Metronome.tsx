@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Minus, Play, Plus, Square, Timer, X } from "lucide-react";
+import { Minus, Play, Plus, Square, Timer, Volume2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { getAudioContext, scheduleClick } from "@/lib/audio";
+import { TEMPO_TERMS, tempoTermOf } from "@/lib/music/theory";
 
 const MIN_BPM = 20;
 const MAX_BPM = 300;
@@ -27,10 +28,13 @@ interface MetronomeProps {
 export function Metronome({ open, onClose }: MetronomeProps) {
   const [bpm, setBpm] = useState(DEFAULT_BPM);
   const [bpmText, setBpmText] = useState(String(DEFAULT_BPM));
+  const [volume, setVolume] = useState(100);
   const [running, setRunning] = useState(false);
   const [beat, setBeat] = useState(0);
   const bpmRef = useRef(bpm);
   bpmRef.current = bpm;
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
 
   // 收起弹框 = 停止
   useEffect(() => {
@@ -49,7 +53,7 @@ export function Metronome({ open, onClose }: MetronomeProps) {
 
     const schedule = () => {
       while (nextTime < ctx.currentTime + LOOKAHEAD_MS / 1000) {
-        scheduleClick(nextTime, current % BEATS_PER_ACCENT === 0);
+        scheduleClick(nextTime, current % BEATS_PER_ACCENT === 0, volumeRef.current / 100);
         const delay = Math.max(0, (nextTime - ctx.currentTime) * 1000);
         const id = window.setTimeout(() => {
           timeouts.delete(id);
@@ -83,6 +87,8 @@ export function Metronome({ open, onClose }: MetronomeProps) {
   };
 
   if (!open) return null;
+
+  const term = tempoTermOf(bpm);
 
   return (
     <Card className="fixed right-4 bottom-4 z-50 w-64 shadow-lg">
@@ -147,6 +153,34 @@ export function Metronome({ open, onClose }: MetronomeProps) {
           </span>
         </div>
 
+        <p className="text-xs text-muted-foreground" aria-label="速度术语">
+          {term ? (
+            <>
+              <span className="font-medium text-foreground">{term.it}</span>
+              {" · "}
+              {term.zh}（{term.lo}–{term.hi} BPM）
+            </>
+          ) : (
+            "比 Prestissimo 还快"
+          )}
+        </p>
+
+        <div className="flex items-center gap-2 text-xs">
+          <Volume2 className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="text-muted-foreground">音量</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={volume}
+            aria-label="节拍器音量"
+            className="h-1 flex-1 cursor-pointer accent-primary"
+            onChange={(event) => setVolume(Number(event.target.value))}
+          />
+          <span className="w-8 shrink-0 text-right tabular-nums text-muted-foreground">{volume}%</span>
+        </div>
+
         <Button
           className="w-full"
           size="sm"
@@ -165,6 +199,27 @@ export function Metronome({ open, onClose }: MetronomeProps) {
             </>
           )}
         </Button>
+
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer select-none">速度术语对照（意大利语）</summary>
+          <ul className="mt-1.5 max-h-40 space-y-0.5 overflow-y-auto pr-1" aria-label="速度术语列表">
+            {TEMPO_TERMS.map((item) => (
+              <li
+                key={item.it}
+                className={`flex justify-between tabular-nums ${
+                  item.it === term?.it ? "font-medium text-foreground" : ""
+                }`}
+              >
+                <span>
+                  {item.it} {item.zh}
+                </span>
+                <span>
+                  {item.lo}–{item.hi}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
       </CardContent>
     </Card>
   );

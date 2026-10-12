@@ -21,6 +21,7 @@ import {
   intervalOptions,
   noteName,
   octaveGroupRoot,
+  pcOf,
   shortcutMidi,
   solfege,
   type Clef,
@@ -197,16 +198,16 @@ export default function App() {
       if (mode === "ear" && (done || !questionReady)) return;
       playKey(midi);
       if (done || (mode !== "note" && mode !== "ear")) return;
-      const expected = question.notes[pressed.length]?.midi;
-      if (expected === undefined) return;
-      if (midi === expected) {
-        const next = [...pressed, midi];
-        setPressed(next);
-        if (next.length >= question.notes.length) finish(true);
-      } else {
-        setPressed([...pressed, midi]);
+      // 已按过的正确音：忽略判定（只出声），允许多音题任意顺序作答
+      if (pressed.includes(midi)) return;
+      const isTarget = question.notes.some((item) => item.midi === midi);
+      const next = [...pressed, midi];
+      setPressed(next);
+      if (!isTarget) {
         finish(false);
+        return;
       }
+      if (next.length >= question.notes.length) finish(true);
     },
     [done, finish, mode, pressed, question, questionReady],
   );
@@ -275,8 +276,11 @@ export default function App() {
     const pc = KEY_HINTS[key];
     if (pc !== undefined) {
       event.preventDefault();
-      // 屏上有两个同音级键时自动对齐待答音的八度
-      answerNote(shortcutMidi(pc, keyboardSpan[0], keyboardSpan[1], question.notes[pressed.length]?.midi));
+      // 屏上有两个同音级键时对齐「还没按过的」待答音八度
+      const nextTarget = question.notes
+        .map((item) => item.midi)
+        .find((midi) => !pressed.includes(midi) && pcOf(midi) === pc);
+      answerNote(shortcutMidi(pc, keyboardSpan[0], keyboardSpan[1], nextTarget));
     }
   };
 
@@ -298,7 +302,7 @@ export default function App() {
       return questionReady ? "听音后在钢琴键盘上弹出你听到的音" : "正在播放引导音… 请仔细听";
     }
     if (mode === "interval") return "看谱后在下方选择两个音构成的音程";
-    const action = noteCount === 1 ? "在下方钢琴键盘上作答" : `按从低到高依次按下 ${noteCount} 个音`;
+    const action = noteCount === 1 ? "在下方钢琴键盘上作答" : `弹出全部 ${noteCount} 个音（顺序不限）`;
     return notesHidden ? `谱面已隐藏，凭记忆${action}` : `看谱后${action}`;
   })();
 

@@ -6,7 +6,7 @@ const SHORTCUT_BY_PC: Record<number, string> = Object.fromEntries(
 );
 
 interface PianoKeyboardProps {
-  /** 本题要依次按下的完整音高（正确答案，顺序即作答顺序） */
+  /** 本题的正确答案（完整音高；多音题顺序不限，全部弹对即正确） */
   targets: number[];
   /** 本轮已经按下的完整音高 */
   pressed: number[];

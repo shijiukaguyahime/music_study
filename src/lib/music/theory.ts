@@ -517,3 +517,40 @@ export function shortcutMidi(pc: number, lo: number, hi: number, expected?: numb
   if (expected !== undefined && pcOf(expected) === pc && expected >= lo && expected <= hi) return expected;
   return lo + pc;
 }
+
+/* ---------------- 速度术语（节拍器对照） ---------------- */
+
+export interface TempoTerm {
+  /** 意大利语 */
+  it: string;
+  /** 中文 */
+  zh: string;
+  /** 参考 BPM 下/上界 */
+  lo: number;
+  hi: number;
+}
+
+/**
+ * 意大利语速度术语与 BPM 对照（通行参考值，20–260 连续覆盖）。
+ * 边界处多个术语重叠时（如 66 同属 Largo/Larghetto），以列表中靠前（偏慢）者为准。
+ */
+export const TEMPO_TERMS: TempoTerm[] = [
+  { it: "Larghissimo", zh: "极广板", lo: 20, hi: 40 },
+  { it: "Grave", zh: "壮板", lo: 40, hi: 60 },
+  { it: "Largo", zh: "广板", lo: 60, hi: 66 },
+  { it: "Larghetto", zh: "小广板", lo: 66, hi: 72 },
+  { it: "Adagio", zh: "柔板", lo: 66, hi: 76 },
+  { it: "Adagietto", zh: "小柔板", lo: 72, hi: 80 },
+  { it: "Andante", zh: "行板", lo: 76, hi: 108 },
+  { it: "Moderato", zh: "中板", lo: 108, hi: 120 },
+  { it: "Allegretto", zh: "小快板", lo: 112, hi: 120 },
+  { it: "Allegro", zh: "快板", lo: 120, hi: 156 },
+  { it: "Vivace", zh: "活泼的快板", lo: 156, hi: 176 },
+  { it: "Presto", zh: "急板", lo: 168, hi: 200 },
+  { it: "Prestissimo", zh: "最急板", lo: 200, hi: 260 },
+];
+
+/** 按 BPM 查当前速度术语（重叠区间取偏慢的一个；超出表范围返回 null） */
+export function tempoTermOf(bpm: number): TempoTerm | null {
+  return TEMPO_TERMS.find((term) => bpm >= term.lo && bpm <= term.hi) ?? null;
+}

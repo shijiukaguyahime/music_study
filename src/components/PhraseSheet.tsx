@@ -35,6 +35,8 @@ const HEADROOM = 40;
 const INK = 14;
 /** 首小节为谱号+拍号额外让出的宽度 */
 const FIRST_EXTRA = 58;
+/** 手机上谱面保持的最小可读宽度（超出容器时横向滚动） */
+const MIN_SHEET_WIDTH = 560;
 
 interface PhraseSheetProps {
   phrase: Phrase;
@@ -61,8 +63,9 @@ function noteDuration(dur: TimedEvent["dur"]): string {
 }
 
 export function PhraseSheet({ phrase, activeIndex }: PhraseSheetProps) {
+  const wrapRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(680);
+  const [containerWidth, setContainerWidth] = useState(680);
   const [drawVersion, setDrawVersion] = useState(0);
   const elementsRef = useRef<(SVGElement | null)[]>([]);
 
@@ -79,14 +82,16 @@ export function PhraseSheet({ phrase, activeIndex }: PhraseSheetProps) {
   }, [lo, hi]);
 
   useLayoutEffect(() => {
-    const el = hostRef.current;
+    const el = wrapRef.current;
     if (!el) return;
-    const update = () => setWidth(Math.max(320, Math.round(el.clientWidth)));
+    const update = () => setContainerWidth(Math.max(320, Math.round(el.clientWidth)));
     update();
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  const width = Math.max(containerWidth, MIN_SHEET_WIDTH);
 
   useEffect(() => {
     let alive = true;
@@ -193,13 +198,14 @@ export function PhraseSheet({ phrase, activeIndex }: PhraseSheetProps) {
   return (
     <Card className="overflow-hidden">
       <CardContent className="p-0">
-        <div
-          ref={hostRef}
-          className="w-full"
-          style={{ height }}
-          aria-label="乐句谱面"
-          data-active-index={activeIndex ?? ""}
-        />
+        <div ref={wrapRef} className="w-full overflow-x-auto">
+          <div
+            ref={hostRef}
+            style={{ width, height }}
+            aria-label="乐句谱面"
+            data-active-index={activeIndex ?? ""}
+          />
+        </div>
       </CardContent>
     </Card>
   );

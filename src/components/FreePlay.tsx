@@ -100,7 +100,7 @@ export function FreePlay() {
               <div className="mb-1 flex items-baseline justify-between text-[11px] text-muted-foreground">
                 <span>
                   <span className="font-medium text-foreground">{midiLabel(row.base)}–{midiLabel(row.base + 11)}</span>
-                  <span className="ml-2">快捷键 {shortcutText}，Shift 升半音</span>
+                  <span className="ml-2 hidden sm:inline">快捷键 {shortcutText}，Shift 升半音</span>
                 </span>
               </div>
               <div

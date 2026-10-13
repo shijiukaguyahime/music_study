@@ -91,7 +91,7 @@ export function Metronome({ open, onClose }: MetronomeProps) {
   const term = tempoTermOf(bpm);
 
   return (
-    <Card className="fixed right-4 bottom-4 z-50 w-64 shadow-lg">
+    <Card className="fixed right-3 bottom-3 z-50 w-64 max-w-[calc(100vw-1.5rem)] shadow-lg sm:right-4 sm:bottom-4">
       <CardContent className="space-y-3 p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-sm font-medium">

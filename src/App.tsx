@@ -496,14 +496,19 @@ export default function App() {
   return (
     <div className="min-h-screen">
       <header className="border-b bg-card/70 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-4">
-          <div className="flex items-baseline gap-3">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-3 sm:px-4 sm:py-4">
+          <div className="flex shrink-0 items-baseline gap-3">
             <h1 className="text-xl font-semibold tracking-tight">识谱训练</h1>
-            <p className="text-sm text-muted-foreground">五线谱视奏练习</p>
+            <p className="hidden text-sm text-muted-foreground sm:block">五线谱视奏练习</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          {/* 手机上一行横滑，桌面换行平铺 */}
+          <nav
+            aria-label="训练模式"
+            className="-mx-3 flex w-full items-center gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:w-auto sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0"
+          >
             <Button
               size="sm"
+              className="shrink-0 whitespace-nowrap"
               variant={mode === "note" && view === "train" ? "default" : "outline"}
               onClick={() => {
                 stopAllNotes();
@@ -515,6 +520,7 @@ export default function App() {
             </Button>
             <Button
               size="sm"
+              className="shrink-0 whitespace-nowrap"
               variant={mode === "interval" && view === "train" ? "default" : "outline"}
               onClick={() => {
                 stopAllNotes();
@@ -526,6 +532,7 @@ export default function App() {
             </Button>
             <Button
               size="sm"
+              className="shrink-0 whitespace-nowrap"
               variant={mode === "ear" && view === "train" ? "default" : "outline"}
               onClick={() => {
                 stopAllNotes();
@@ -538,6 +545,7 @@ export default function App() {
             </Button>
             <Button
               size="sm"
+              className="shrink-0 whitespace-nowrap"
               variant={mode === "chord" && view === "train" ? "default" : "outline"}
               onClick={() => {
                 stopAllNotes();
@@ -549,6 +557,7 @@ export default function App() {
             </Button>
             <Button
               size="sm"
+              className="shrink-0 whitespace-nowrap"
               variant={view === "phrase" ? "default" : "outline"}
               onClick={() => {
                 stopAllNotes();
@@ -559,6 +568,7 @@ export default function App() {
             </Button>
             <Button
               size="sm"
+              className="shrink-0 whitespace-nowrap"
               variant={view === "free" ? "default" : "outline"}
               onClick={() => {
                 stopAllNotes();
@@ -569,17 +579,18 @@ export default function App() {
             </Button>
             <Button
               size="sm"
+              className="shrink-0 whitespace-nowrap"
               variant={metronomeOpen ? "default" : "outline"}
               onClick={() => setMetronomeOpen((value) => !value)}
             >
               <Timer className="mr-1 size-4" />
               节拍器
             </Button>
-          </div>
+          </nav>
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl space-y-4 px-4 py-6">
+      <main className="mx-auto max-w-5xl space-y-4 px-3 py-4 sm:px-4 sm:py-6">
         {view === "free" ? (
           <Card>
             <CardContent className="py-5">

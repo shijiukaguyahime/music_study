@@ -5,9 +5,10 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-    server: {
-        port: 5200,
-    },
+  server: {
+    host: true,
+    port: 5200,
+  },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

@@ -84,10 +84,10 @@ export function PianoKeyboard({ targets, pressed, span, revealed, onPick }: Pian
               data-midi={midi}
               data-pc={pcOf(midi)}
             >
-              <span className="text-[10px] tabular-nums text-neutral-400">
+              <span className="hidden text-[10px] tabular-nums text-neutral-400 sm:block">
                 {SHORTCUT_BY_PC[pcOf(midi)]}
               </span>
-              <span className="text-sm font-semibold tracking-wide">{midiLabel(midi)}</span>
+              <span className="text-xs font-semibold tracking-wide sm:text-sm">{midiLabel(midi)}</span>
             </button>
           );
         })}
@@ -107,7 +107,7 @@ export function PianoKeyboard({ targets, pressed, span, revealed, onPick }: Pian
               data-midi={midi}
               data-pc={pcOf(midi)}
             >
-              <span className="text-[9px] tabular-nums text-neutral-500">
+              <span className="hidden text-[9px] tabular-nums text-neutral-500 sm:block">
                 {SHORTCUT_BY_PC[pcOf(midi)]}
               </span>
             </button>

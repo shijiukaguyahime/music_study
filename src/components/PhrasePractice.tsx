@@ -168,7 +168,7 @@ export function PhrasePractice() {
   return (
     <div className="space-y-4">
       <Card>
-        <CardContent className="flex flex-wrap items-end gap-4 py-5">
+        <CardContent className="flex flex-wrap items-end gap-3 py-4 sm:gap-4 sm:py-5">
           <div className="space-y-2">
             <Label>拍号</Label>
             <ToggleGroup

@@ -60,9 +60,22 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
   body {
     @apply bg-background text-foreground antialiased;
     font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  /* 触屏：去掉双击缩放延迟，长按不弹选择/呼出菜单 */
+  button,
+  a,
+  [role="button"],
+  input[type="range"] {
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
   }
 }
 

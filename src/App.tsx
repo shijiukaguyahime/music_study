@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Circle, Headphones, RotateCcw, Timer, XCircle } from "lucide-react";
 import { ChordOptions } from "@/components/ChordOptions";
 import { FreePlay } from "@/components/FreePlay";
 import { IntervalOptions } from "@/components/IntervalOptions";
 import { Metronome } from "@/components/Metronome";
-import { PhrasePractice } from "@/components/PhrasePractice";
 import { PianoKeyboard } from "@/components/PianoKeyboard";
 import {
   SettingsPanel,
@@ -12,9 +11,16 @@ import {
   type ChordTask,
   type TrainMode,
 } from "@/components/SettingsPanel";
-import { StaffSheet } from "@/components/StaffSheet";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+
+// vexflow 较重：谱面组件按需加载，单音/练耳首屏不下载 vexflow
+const StaffSheet = lazy(() =>
+  import("@/components/StaffSheet").then((m) => ({ default: m.StaffSheet })),
+);
+const PhrasePractice = lazy(() =>
+  import("@/components/PhrasePractice").then((m) => ({ default: m.PhrasePractice })),
+);
 import { getAudioContext, playKey, playMidi, preloadPiano, stopAllNotes } from "@/lib/audio";
 import {
   DEFAULT_RANGE,
@@ -55,6 +61,50 @@ interface Stats {
 }
 
 const EMPTY_STATS: Stats = { total: 0, correct: 0, streak: 0, best: 0 };
+
+const STATS_STORAGE_KEY = "musc_demo_stats_v1";
+
+type StatsMap = Record<TrainMode, Stats>;
+
+function isValidStats(value: unknown): value is Stats {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.total === "number" &&
+    typeof v.correct === "number" &&
+    typeof v.streak === "number" &&
+    typeof v.best === "number" &&
+    v.total >= 0 &&
+    v.correct >= 0 &&
+    v.streak >= 0 &&
+    v.best >= 0
+  );
+}
+
+function loadStats(): StatsMap {
+  try {
+    const raw = localStorage.getItem(STATS_STORAGE_KEY);
+    if (!raw) throw new Error("empty");
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) throw new Error("shape");
+    const result: StatsMap = { note: EMPTY_STATS, interval: EMPTY_STATS, ear: EMPTY_STATS, chord: EMPTY_STATS };
+    for (const mode of ["note", "interval", "ear", "chord"] as const) {
+      const entry = (parsed as Record<string, unknown>)[mode];
+      if (isValidStats(entry)) result[mode] = entry;
+    }
+    return result;
+  } catch {
+    return { note: EMPTY_STATS, interval: EMPTY_STATS, ear: EMPTY_STATS, chord: EMPTY_STATS };
+  }
+}
+
+function saveStats(stats: StatsMap) {
+  try {
+    localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(stats));
+  } catch {
+    /* 隐私模式等场景静默失败 */
+  }
+}
 
 function isIntervalQuestion(question: Question): question is IntervalQuestion {
   return "name" in question;
@@ -124,12 +174,12 @@ export default function App() {
   const [pickedOption, setPickedOption] = useState<string | null>(initial.pickedOption);
   const [done, setDone] = useState(initial.done);
   const [ok, setOk] = useState(initial.ok);
-  const [stats, setStats] = useState<Record<TrainMode, Stats>>({
-    note: EMPTY_STATS,
-    interval: EMPTY_STATS,
-    ear: EMPTY_STATS,
-    chord: EMPTY_STATS,
-  });
+  const [stats, setStats] = useState<StatsMap>(loadStats);
+
+  // 统计变化时持久化（初始化时 loadStats 已读过，save 幂等）
+  useEffect(() => {
+    saveStats(stats);
+  }, [stats]);
 
   const timerRef = useRef<number | null>(null);
   /** 练耳：正在排程的播放定时器，换题/切模式时清掉 */
@@ -537,7 +587,17 @@ export default function App() {
             </CardContent>
           </Card>
         ) : view === "phrase" ? (
-          <PhrasePractice />
+          <Suspense
+            fallback={
+              <Card>
+                <CardContent className="py-16 text-center text-sm text-muted-foreground">
+                  正在加载谱面…
+                </CardContent>
+              </Card>
+            }
+          >
+            <PhrasePractice />
+          </Suspense>
         ) : (
           <>
             <Card>
@@ -587,14 +647,24 @@ export default function App() {
                 <p className="text-sm text-muted-foreground">{chordPromptDesc(chord)}</p>
               </Card>
             ) : (
-              <StaffSheet
-                clef={clef}
-                range={range}
-                staff={question.staff}
-                notes={question.notes}
-                layout={question.layout}
-                hidden={notesHidden}
-              />
+              <Suspense
+                fallback={
+                  <Card>
+                    <CardContent className="min-h-[220px] py-16 text-center text-sm text-muted-foreground">
+                      正在加载谱面…
+                    </CardContent>
+                  </Card>
+                }
+              >
+                <StaffSheet
+                  clef={clef}
+                  range={range}
+                  staff={question.staff}
+                  notes={question.notes}
+                  layout={question.layout}
+                  hidden={notesHidden}
+                />
+              </Suspense>
             )}
 
             <Card

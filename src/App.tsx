@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Circle, Headphones, RotateCcw, Timer, XCircle } from "lucide-react";
 import { ChordOptions } from "@/components/ChordOptions";
+import { FreePlay } from "@/components/FreePlay";
 import { IntervalOptions } from "@/components/IntervalOptions";
 import { Metronome } from "@/components/Metronome";
+import { PhrasePractice } from "@/components/PhrasePractice";
 import { PianoKeyboard } from "@/components/PianoKeyboard";
 import {
   SettingsPanel,
@@ -65,6 +67,9 @@ function isChordQuestion(question: Question): question is ChordQuestion {
 const DEFAULT_CLEF: Clef = "treble";
 const DEFAULT_NOTE_COUNT = 1;
 
+/** 顶栏视图：训练 / 自由演奏 / 乐句视唱 */
+type View = "train" | "free" | "phrase";
+
 interface RoundState {
   question: Question;
   options: string[];
@@ -89,6 +94,8 @@ function createInitialRound(): RoundState {
 export default function App() {
   const [initial] = useState<RoundState>(createInitialRound);
   const [mode, setMode] = useState<TrainMode>("note");
+  /** 顶栏视图：非训练视图时隐藏训练区，全局快捷键让位 */
+  const [view, setView] = useState<View>("train");
   const [clef, setClef] = useState<Clef>(DEFAULT_CLEF);
   const [rangeId, setRangeId] = useState(DEFAULT_RANGE[DEFAULT_CLEF]);
   const [allowAccidentals, setAllowAccidentals] = useState(false);
@@ -339,6 +346,7 @@ export default function App() {
 
   const handlerRef = useRef<(event: KeyboardEvent) => void>(() => {});
   handlerRef.current = (event: KeyboardEvent) => {
+    if (view !== "train") return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target as HTMLElement | null;
     if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
@@ -446,32 +454,68 @@ export default function App() {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
-              variant={mode === "note" ? "default" : "outline"}
-              onClick={() => setMode("note")}
+              variant={mode === "note" && view === "train" ? "default" : "outline"}
+              onClick={() => {
+                stopAllNotes();
+                setView("train");
+                setMode("note");
+              }}
             >
               单音训练
             </Button>
             <Button
               size="sm"
-              variant={mode === "interval" ? "default" : "outline"}
-              onClick={() => setMode("interval")}
+              variant={mode === "interval" && view === "train" ? "default" : "outline"}
+              onClick={() => {
+                stopAllNotes();
+                setView("train");
+                setMode("interval");
+              }}
             >
               音程训练
             </Button>
             <Button
               size="sm"
-              variant={mode === "ear" ? "default" : "outline"}
-              onClick={() => setMode("ear")}
+              variant={mode === "ear" && view === "train" ? "default" : "outline"}
+              onClick={() => {
+                stopAllNotes();
+                setView("train");
+                setMode("ear");
+              }}
             >
               <Headphones className="mr-1 size-4" />
               练耳训练
             </Button>
             <Button
               size="sm"
-              variant={mode === "chord" ? "default" : "outline"}
-              onClick={() => setMode("chord")}
+              variant={mode === "chord" && view === "train" ? "default" : "outline"}
+              onClick={() => {
+                stopAllNotes();
+                setView("train");
+                setMode("chord");
+              }}
             >
               和弦训练
+            </Button>
+            <Button
+              size="sm"
+              variant={view === "phrase" ? "default" : "outline"}
+              onClick={() => {
+                stopAllNotes();
+                setView((value) => (value === "phrase" ? "train" : "phrase"));
+              }}
+            >
+              乐句视唱
+            </Button>
+            <Button
+              size="sm"
+              variant={view === "free" ? "default" : "outline"}
+              onClick={() => {
+                stopAllNotes();
+                setView((value) => (value === "free" ? "train" : "free"));
+              }}
+            >
+              自由演奏
             </Button>
             <Button
               size="sm"
@@ -486,39 +530,49 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-5xl space-y-4 px-4 py-6">
-        <Card>
-          <CardContent className="py-5">
-            <SettingsPanel
-              mode={mode}
-              clef={clef}
-              rangeId={range.id}
-              allowAccidentals={allowAccidentals}
-              noteCount={noteCount}
-              showDuration={showDuration}
-              earGuide={earGuide}
-              chordMode={chordMode}
-              chordRootPc={chordRootPc}
-              chordTask={chordTask}
-              chordDiatonic={chordDiatonic}
-              chordScope={chordScope}
-              chordInversions={chordInversions}
-              onClefChange={setClef}
-              onRangeChange={setRangeId}
-              onAccidentalsChange={setAllowAccidentals}
-              onNoteCountChange={setNoteCount}
-              onShowDurationChange={setShowDuration}
-              onEarGuideChange={setEarGuide}
-              onChordModeChange={setChordMode}
-              onChordRootChange={setChordRootPc}
-              onChordTaskChange={setChordTask}
-              onChordDiatonicChange={setChordDiatonic}
-              onChordScopeChange={setChordScope}
-              onChordInversionsChange={setChordInversions}
-            />
-          </CardContent>
-        </Card>
+        {view === "free" ? (
+          <Card>
+            <CardContent className="py-5">
+              <FreePlay />
+            </CardContent>
+          </Card>
+        ) : view === "phrase" ? (
+          <PhrasePractice />
+        ) : (
+          <>
+            <Card>
+              <CardContent className="py-5">
+                <SettingsPanel
+                  mode={mode}
+                  clef={clef}
+                  rangeId={range.id}
+                  allowAccidentals={allowAccidentals}
+                  noteCount={noteCount}
+                  showDuration={showDuration}
+                  earGuide={earGuide}
+                  chordMode={chordMode}
+                  chordRootPc={chordRootPc}
+                  chordTask={chordTask}
+                  chordDiatonic={chordDiatonic}
+                  chordScope={chordScope}
+                  chordInversions={chordInversions}
+                  onClefChange={setClef}
+                  onRangeChange={setRangeId}
+                  onAccidentalsChange={setAllowAccidentals}
+                  onNoteCountChange={setNoteCount}
+                  onShowDurationChange={setShowDuration}
+                  onEarGuideChange={setEarGuide}
+                  onChordModeChange={setChordMode}
+                  onChordRootChange={setChordRootPc}
+                  onChordTaskChange={setChordTask}
+                  onChordDiatonicChange={setChordDiatonic}
+                  onChordScopeChange={setChordScope}
+                  onChordInversionsChange={setChordInversions}
+                />
+              </CardContent>
+            </Card>
 
-        <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
+            <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
           <div className="space-y-4">
             {mode === "ear" ? (
               <Card className="flex min-h-[220px] flex-col items-center justify-center gap-3">
@@ -648,7 +702,9 @@ export default function App() {
               </CardContent>
             </Card>
           </div>
-        </div>
+            </div>
+          </>
+        )}
       </main>
 
       <Metronome open={metronomeOpen} onClose={() => setMetronomeOpen(false)} />

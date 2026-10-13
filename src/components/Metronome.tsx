@@ -201,23 +201,35 @@ export function Metronome({ open, onClose }: MetronomeProps) {
         </Button>
 
         <details className="text-xs text-muted-foreground">
-          <summary className="cursor-pointer select-none">速度术语对照（意大利语）</summary>
+          <summary className="cursor-pointer select-none">速度术语对照（点击设为该速度）</summary>
           <ul className="mt-1.5 max-h-40 space-y-0.5 overflow-y-auto pr-1" aria-label="速度术语列表">
-            {TEMPO_TERMS.map((item) => (
-              <li
-                key={item.it}
-                className={`flex justify-between tabular-nums ${
-                  item.it === term?.it ? "font-medium text-foreground" : ""
-                }`}
-              >
-                <span>
-                  {item.it} {item.zh}
-                </span>
-                <span>
-                  {item.lo}–{item.hi}
-                </span>
-              </li>
-            ))}
+            {TEMPO_TERMS.map((item) => {
+              const target = clampBpm(Math.round((item.lo + item.hi) / 2));
+              const active = item.it === term?.it;
+              return (
+                <li key={item.it}>
+                  <button
+                    type="button"
+                    className={`flex w-full justify-between rounded px-1 py-0.5 tabular-nums transition-colors hover:bg-muted hover:text-foreground ${
+                      active ? "font-medium text-foreground" : ""
+                    }`}
+                    aria-label={`将速度设为 ${item.it} ${item.zh} ${target} BPM`}
+                    onClick={() => {
+                      setBpm(target);
+                      setBpmText(String(target));
+                    }}
+                  >
+                    <span>
+                      {item.it} {item.zh}
+                    </span>
+                    <span>
+                      {item.lo}–{item.hi}
+                      <span className="ml-1 text-primary">→{target}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </details>
       </CardContent>

@@ -65,3 +65,13 @@
     font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   }
 }
+
+/* 乐句视唱：当前播放到的音符/休止整体染成强调色（只切 class，不重绘） */
+.phrase-active path,
+.phrase-active polygon,
+.phrase-active ellipse,
+.phrase-active rect,
+.phrase-active text {
+  fill: #059669 !important;
+  stroke: #059669 !important;
+}

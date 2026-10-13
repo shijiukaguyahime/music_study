@@ -207,12 +207,13 @@ export function playKey(midi: number) {
 /**
  * 节拍器点击声：在指定的 AudioContext 时间点响一下（提前调度用）。
  * accent = 强拍，音更高更响；volume = 总音量 0–1（UI 音量条）。
+ * 整体增益 ×2：UI 的 50% ≈ 原来 100% 的响度，强拍上限钳到 1 防削波。
  */
 export function scheduleClick(time: number, accent = false, volume = 1) {
   const ctx = getAudioContext();
   if (!ctx) return;
   const freq = accent ? 1760 : 1174;
-  const gain = (accent ? 0.52 : 0.34) * volume;
+  const gain = Math.min(1, (accent ? 0.52 : 0.34) * volume * 2);
 
   for (const [multiple, level] of [
     [1, 1],

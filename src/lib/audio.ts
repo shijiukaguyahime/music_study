@@ -208,8 +208,10 @@ export function playKey(midi: number) {
  * 节拍器点击声：在指定的 AudioContext 时间点响一下（提前调度用）。
  * accent = 强拍，音更高更响；volume = 总音量 0–1（UI 音量条）。
  * 整体增益 ×2：UI 的 50% ≈ 原来 100% 的响度，强拍上限钳到 1 防削波。
+ * managed = true 时纳入 stopAllNotes（乐句预备拍用，停止播放能一起掐掉）；
+ * 节拍器本体传 false，切视图不会打断它。
  */
-export function scheduleClick(time: number, accent = false, volume = 1) {
+export function scheduleClick(time: number, accent = false, volume = 1, managed = false) {
   const ctx = getAudioContext();
   if (!ctx) return;
   const freq = accent ? 1760 : 1174;
@@ -219,7 +221,8 @@ export function scheduleClick(time: number, accent = false, volume = 1) {
     [1, 1],
     [2.01, 0.32],
   ] as const) {
-    const osc = ctx.createOscillator();
+    const rawOsc = ctx.createOscillator();
+    const osc = managed ? trackVoice(rawOsc) : rawOsc;
     osc.type = "sine";
     osc.frequency.setValueAtTime(freq * multiple, time);
 

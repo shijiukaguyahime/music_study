@@ -109,6 +109,16 @@ function shuffle<T>(list: T[]): T[] {
   return result;
 }
 
+/** 由 MIDI 音高直接构造一个可记谱的 Note（升降号默认用升号拼写） */
+export function noteOf(midi: number, useSharp = true): Note {
+  const pc = pcOf(midi);
+  const octave = octaveOf(midi);
+  const natural = LETTERS.find((letter) => LETTER_MIDI[letter] === pc);
+  if (natural) return { midi, pc, letter: natural, acc: "", octave };
+  const letter = useSharp ? SHARP_LETTER[pc] : FLAT_LETTER[pc];
+  return { midi, pc, letter, acc: useSharp ? "#" : "b", octave };
+}
+
 function spell(midi: number, allowAccidentals: boolean): Note {
   const pc = pcOf(midi);
   const octave = octaveOf(midi);
@@ -389,45 +399,57 @@ export function generateInterval(range: Range, clef: Clef, allowAccidentals: boo
 export const EAR_LO = 60;
 export const EAR_HI = 71;
 
-/** 引导音的单个音：time/duration 单位为秒 */
+/** 练耳引导：关闭 / 开启 */
+export type EarGuideMode = "off" | "on";
+
+/** 引导音的单个音：time/duration 单位为秒（相对本题开始） */
 export interface EarGuideNote {
   midi: number;
   time: number;
   duration: number;
 }
 
-/** 引导节奏 BPM（四分音符 = 60/BPM 秒） */
+export interface EarGuidePlan {
+  notes: EarGuideNote[];
+  /** 出题音的播放时刻（秒，已含末尾停顿） */
+  answerAt: number;
+}
+
+/** 引导节奏固定 90 BPM；四分音符 = 60 / 90 ≈ 0.667 秒 */
 export const EAR_GUIDE_BPM = 90;
 
-const EAR_BEAT = 60 / EAR_GUIDE_BPM; // 四分 = 1s
-const EAR_EIGHTH = EAR_BEAT / 2; // 八分 = 0.5s
 /** 段落之间的停顿（半拍） */
-export const EAR_GUIDE_REST = EAR_EIGHTH;
+export const EAR_GUIDE_REST = 60 / EAR_GUIDE_BPM / 2;
 
-/** 音阶 do re mi fa sol la ti do：C4 → C5 */
-const EAR_SCALE_MIDIS = [60, 62, 64, 65, 67, 69, 71, 72];
-const EAR_SCALE_START = EAR_BEAT + EAR_GUIDE_REST;
-
-const EAR_SCALE: EarGuideNote[] = EAR_SCALE_MIDIS.map((midi, index) => ({
-  midi,
-  time: EAR_SCALE_START + index * EAR_EIGHTH,
-  duration: EAR_EIGHTH,
-}));
-const EAR_FINAL_START = EAR_SCALE_START + EAR_SCALE_MIDIS.length * EAR_EIGHTH + EAR_GUIDE_REST;
+/** 音阶 do re mi fa sol la si（1234567）：C4 → B4 */
+const EAR_SCALE_MIDIS = [60, 62, 64, 65, 67, 69, 71];
+/** 标准音 A4（唱名 6 = la），放在音阶之后作绝对音高参照 */
+const EAR_STANDARD_MIDI = 69;
 
 /**
- * 每题开头的引导音（BPM 60，段落间停半拍）：
- * 标准音 A4（四分）→ 停 → 音阶 C4→C5（八分 ×8）→ 停 → 标准音 A4、A4（四分 ×2）→ 停 → 出题音。
+ * 引导固定为「1234567 · 6 · ？」：音阶（八分 ×7）→ 半拍停 →
+ * 标准音 6（A4，四分）→ 半拍停 → 出题音（？）。
+ * off 时不播引导，出题音立刻响。速度固定 90 BPM，不提供配速设置。
+ * 不在开头单播标准音：先由音阶建立调性框架，再给 A4 参照。
  */
-export const EAR_GUIDE: EarGuideNote[] = [
-  { midi: 69, time: 0, duration: EAR_BEAT },
-  ...EAR_SCALE,
-  { midi: 69, time: EAR_FINAL_START, duration: EAR_BEAT },
-  { midi: 69, time: EAR_FINAL_START + EAR_BEAT, duration: EAR_BEAT },
-];
+export function earGuidePlan(mode: EarGuideMode): EarGuidePlan {
+  if (mode === "off") return { notes: [], answerAt: 0 };
+  const beat = 60 / EAR_GUIDE_BPM;
+  const eighth = beat / 2;
+  const rest = EAR_GUIDE_REST;
+  const notes: EarGuideNote[] = EAR_SCALE_MIDIS.map((midi, index) => ({
+    midi,
+    time: index * eighth,
+    duration: eighth,
+  }));
+  const standardStart = EAR_SCALE_MIDIS.length * eighth + rest;
+  notes.push({ midi: EAR_STANDARD_MIDI, time: standardStart, duration: beat });
+  return { notes, answerAt: standardStart + beat + rest };
+}
 
-/** 引导全部结束的时刻（秒，已含最后一段停顿），出题音在此刻播放 */
-export const EAR_GUIDE_TOTAL = EAR_FINAL_START + EAR_BEAT * 2 + EAR_GUIDE_REST;
+/** 引导时间轴常量（保留导出供测试与外部参考） */
+export const EAR_GUIDE: EarGuideNote[] = earGuidePlan("on").notes;
+export const EAR_GUIDE_TOTAL: number = earGuidePlan("on").answerAt;
 
 /** 练耳出题：C4–B4 里随机一个音，升降号开关决定是否含黑键 */
 export function generateEarNote(allowAccidentals: boolean, exclude?: number): Question {

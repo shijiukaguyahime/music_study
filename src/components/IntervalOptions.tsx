@@ -7,9 +7,15 @@ interface IntervalOptionsProps {
   picked: string | null;
   revealed: boolean;
   onPick: (name: string) => void;
+  /** 认调号题复用同一套选项 UI，文案可覆盖 */
+  groupLabel?: string;
+  answerLabel?: string;
 }
 
-export function IntervalOptions({ options, correct, picked, revealed, onPick }: IntervalOptionsProps) {
+export function IntervalOptions({
+  options, correct, picked, revealed, onPick,
+  groupLabel = "音程选项", answerLabel = "正确答案",
+}: IntervalOptionsProps) {
   const stateOf = (name: string): "idle" | "correct" | "wrong" => {
     if (!revealed) return "idle";
     if (name === correct) return "correct";
@@ -19,7 +25,7 @@ export function IntervalOptions({ options, correct, picked, revealed, onPick }: 
 
   return (
     <div className="w-full">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" role="group" aria-label="音程选项">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" role="group" aria-label={groupLabel}>
         {options.map((name, index) => {
           const state = stateOf(name);
           return (
@@ -48,7 +54,7 @@ export function IntervalOptions({ options, correct, picked, revealed, onPick }: 
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>点击选项作答 · 快捷键 1 2 3 4</span>
-        {revealed && <span className="font-medium text-foreground">正确答案：{correct}</span>}
+        {revealed && <span className="font-medium text-foreground">{answerLabel}：{correct}</span>}
       </div>
     </div>
   );

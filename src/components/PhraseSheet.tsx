@@ -42,6 +42,8 @@ interface PhraseSheetProps {
   phrase: Phrase;
   /** 当前高亮的事件下标（按时间顺序展平后的索引），null=不高亮 */
   activeIndex: number | null;
+  /** 视奏逐音判定结果，下标与展平事件一致；true=命中，false=未命中 */
+  results?: boolean[] | null;
 }
 
 function phraseNoteMidis(phrase: Phrase): number[] {
@@ -62,7 +64,7 @@ function noteDuration(dur: TimedEvent["dur"]): string {
   return dur.endsWith(".") ? `${dur.slice(0, -1)}d` : dur;
 }
 
-export function PhraseSheet({ phrase, activeIndex }: PhraseSheetProps) {
+export function PhraseSheet({ phrase, activeIndex, results }: PhraseSheetProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(680);
@@ -190,10 +192,13 @@ export function PhraseSheet({ phrase, activeIndex }: PhraseSheetProps) {
   useEffect(() => {
     elementsRef.current.forEach((el, index) => {
       if (!el) return;
+      el.classList.remove("phrase-active", "sightread-hit", "sightread-miss");
       if (index === activeIndex) el.classList.add("phrase-active");
-      else el.classList.remove("phrase-active");
+      const hit = results?.[index];
+      if (hit === true) el.classList.add("sightread-hit");
+      else if (hit === false) el.classList.add("sightread-miss");
     });
-  }, [activeIndex, drawVersion]);
+  }, [activeIndex, results, drawVersion]);
 
   return (
     <Card className="overflow-hidden">

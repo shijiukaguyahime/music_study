@@ -127,8 +127,8 @@ export function ChordOptions({
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>
           {showDegree
-            ? "先选性质再选级数 · 快捷键 1 2 3 4"
-            : "点击选项作答 · 快捷键 1 2 3 4"}
+            ? `先选性质再选级数 · 快捷键 1–${qualityOptions.length}`
+            : `点击选项作答 · 快捷键 1–${qualityOptions.length}`}
         </span>
         {revealed && !showDegree && (
           <span className="font-medium text-foreground">正确答案：{qualityOf(correctQuality).zh}</span>

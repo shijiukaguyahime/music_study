@@ -80,11 +80,17 @@ interface StaffSheetProps {
   notes: Note[];
   /** chord=叠成一个和弦（并行）；sequence=按顺序散开（依次） */
   layout: "chord" | "sequence";
-  /** true=只画谱表、不画音符（瞬时记忆训练） */
+  /** true=只画谱表、不画音符（瞬时记忆训练 / 认调号题） */
   hidden?: boolean;
+  /** VexFlow 调号 spec，如 G / Bb / Em；不传则不画调号 */
+  keySignature?: string | null;
+  /** 揭晓答案时把谱面上的音符整体染成强调色 */
+  highlight?: boolean;
 }
 
-export function StaffSheet({ clef, range, staff, notes, layout, hidden }: StaffSheetProps) {
+export function StaffSheet({
+  clef, range, staff, notes, layout, hidden, keySignature, highlight,
+}: StaffSheetProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
   const geometry = useMemo(() => computeGeometry(clef, range), [clef, range]);
@@ -107,7 +113,7 @@ export function StaffSheet({ clef, range, staff, notes, layout, hidden }: StaffS
     return () => {
       alive = false;
     };
-  }, [clef, range, staff, notes, layout, hidden, width, geometry]);
+  }, [clef, range, staff, notes, layout, hidden, keySignature, highlight, width, geometry]);
 
   function draw() {
     const host = hostRef.current;
@@ -124,8 +130,16 @@ export function StaffSheet({ clef, range, staff, notes, layout, hidden }: StaffS
     const createStave = (y: number, clefName: string) => {
       const stave = new Stave(staveX, y, staveWidth);
       stave.addClef(clefName);
+      if (keySignature) stave.addKeySignature(keySignature);
       stave.setContext(ctx);
       return stave;
+    };
+
+    /** 谱面上所有音符的 SVG 根元素，揭晓时统一高亮 */
+    const noteElements: (SVGElement | null)[] = [];
+    const applyHighlight = () => {
+      if (!highlight) return;
+      noteElements.forEach((element) => element?.classList.add("answer-highlight"));
     };
 
     const staves = {} as Record<Staff, Stave>;
@@ -210,6 +224,8 @@ export function StaffSheet({ clef, range, staff, notes, layout, hidden }: StaffS
         voices.forEach((voice, key) => {
           voice.setContext(ctx).setStave(staves[key]).drawWithStyle();
         });
+        items.forEach(({ item }) => noteElements.push(item.getSVGElement() ?? null));
+        applyHighlight();
         return;
       }
 
@@ -251,7 +267,9 @@ export function StaffSheet({ clef, range, staff, notes, layout, hidden }: StaffS
         tickContext.setX(tickContext.getX() + (center - contentCenter));
 
         voice.setContext(ctx).setStave(stave).drawWithStyle();
+        noteElements.push(staveNote.getSVGElement() ?? null);
       });
+      applyHighlight();
     } catch (error) {
       console.error("[staff] render fallback", error);
     }

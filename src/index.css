@@ -88,3 +88,31 @@
   fill: #059669 !important;
   stroke: #059669 !important;
 }
+
+/* 揭晓答案：谱面上的正确音符染成强调色，和键盘的高亮保持一致 */
+.answer-highlight path,
+.answer-highlight polygon,
+.answer-highlight ellipse,
+.answer-highlight rect,
+.answer-highlight text {
+  fill: #059669 !important;
+  stroke: #059669 !important;
+}
+
+/* 视奏逐音判定：命中的音符绿、漏掉/弹错的音符红 */
+.sightread-hit path,
+.sightread-hit polygon,
+.sightread-hit ellipse,
+.sightread-hit rect,
+.sightread-hit text {
+  fill: #059669 !important;
+  stroke: #059669 !important;
+}
+.sightread-miss path,
+.sightread-miss polygon,
+.sightread-miss ellipse,
+.sightread-miss rect,
+.sightread-miss text {
+  fill: #dc2626 !important;
+  stroke: #dc2626 !important;
+}

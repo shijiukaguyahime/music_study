@@ -110,7 +110,8 @@ export function diatonicPosition(note: Note): number {
 
 /* ---------------- 节奏模板 ---------------- */
 
-const RHYTHM_POOL: Record<string, DurationId[][]> = {
+/** 节奏模板池（节奏训练与乐句生成共用） */
+export const RHYTHM_POOL: Record<string, DurationId[][]> = {
   "2/4": [
     ["q", "q"],
     ["8", "8", "q"],

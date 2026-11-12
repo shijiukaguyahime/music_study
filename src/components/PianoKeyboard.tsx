@@ -14,13 +14,16 @@ interface PianoKeyboardProps {
   span: [number, number];
   /** 作答已结束 */
   revealed: boolean;
+  /** 键帽显示文本（音名 / 首调唱名 / 简谱数字），不传则用音名 */
+  labelFor?: (midi: number) => string;
   onPick: (midi: number) => void;
 }
 
 type KeyState = "idle" | "pressed" | "correct" | "wrong";
 
-export function PianoKeyboard({ targets, pressed, span, revealed, onPick }: PianoKeyboardProps) {
+export function PianoKeyboard({ targets, pressed, span, revealed, labelFor, onPick }: PianoKeyboardProps) {
   const [lo, hi] = span;
+  const label = labelFor ?? midiLabel;
   const whites: number[] = [];
   const blacks: number[] = [];
   for (let midi = lo; midi <= hi; midi += 1) {
@@ -48,7 +51,7 @@ export function PianoKeyboard({ targets, pressed, span, revealed, onPick }: Pian
   const blackClass = (state: KeyState) =>
     cn(
       "absolute top-0 z-10 h-[62%] cursor-pointer rounded-b-[5px] border border-black/40",
-      "flex items-end justify-center pb-2 text-[11px] font-medium text-neutral-400",
+      "flex flex-col items-center justify-end gap-0.5 pb-2 text-[11px] font-medium text-neutral-400",
       "bg-neutral-900 shadow-[0_3px_0_rgba(0,0,0,0.35)] transition-colors duration-150",
       "hover:bg-neutral-700 active:bg-neutral-600",
       "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring",
@@ -57,7 +60,7 @@ export function PianoKeyboard({ targets, pressed, span, revealed, onPick }: Pian
       state === "wrong" && "border-red-400 bg-red-600 text-white hover:bg-red-600",
     );
 
-  const answerText = targets.map(midiLabel).join(" → ");
+  const answerText = targets.map(label).join(" → ");
 
   return (
     <div className="w-full">
@@ -87,7 +90,7 @@ export function PianoKeyboard({ targets, pressed, span, revealed, onPick }: Pian
               <span className="hidden text-[10px] tabular-nums text-neutral-400 sm:block">
                 {SHORTCUT_BY_PC[pcOf(midi)]}
               </span>
-              <span className="text-xs font-semibold tracking-wide sm:text-sm">{midiLabel(midi)}</span>
+              <span className="text-xs font-semibold tracking-wide sm:text-sm">{label(midi)}</span>
             </button>
           );
         })}
@@ -110,6 +113,7 @@ export function PianoKeyboard({ targets, pressed, span, revealed, onPick }: Pian
               <span className="hidden text-[9px] tabular-nums text-neutral-500 sm:block">
                 {SHORTCUT_BY_PC[pcOf(midi)]}
               </span>
+              <span className="text-xs font-semibold sm:text-sm">{label(midi)}</span>
             </button>
           );
         })}

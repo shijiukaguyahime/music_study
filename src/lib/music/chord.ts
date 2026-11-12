@@ -188,9 +188,23 @@ export function qualityOf(id: ChordQualityId): ChordQuality {
   return QUALITY_BY_ID.get(id)!;
 }
 
-/** 性质选项池：三和弦/七和弦各是一个完整小班 */
+/** 性质选项池：三和弦/七和弦各是一个完整小班（出题时随机性质用） */
 export function qualityPool(isSeventh: boolean): ChordQualityId[] {
   return CHORD_QUALITIES.filter((item) => item.isSeventh === isSeventh).map((item) => item.id);
+}
+
+/**
+ * 认和弦题的性质选项：正确项 + 3 个干扰项并打乱顺序。
+ * 干扰项优先取同班（同为三/七和弦）2 个，再补 1 个跨班项；
+ * 顺序每次随机，避免「大三永远是第一格」练成位置记忆。
+ */
+export function sampleQualityOptions(correct: ChordQualityId): ChordQualityId[] {
+  const isSeventh = qualityOf(correct).isSeventh;
+  const pool = CHORD_QUALITIES.map((item) => item.id).filter((id) => id !== correct);
+  const same = shuffle(pool.filter((id) => qualityOf(id).isSeventh === isSeventh));
+  const cross = shuffle(pool.filter((id) => qualityOf(id).isSeventh !== isSeventh));
+  const distractors = [...same.slice(0, 2), ...cross].slice(0, 3);
+  return shuffle([correct, ...distractors]);
 }
 
 /* ---------------- 调内级数 ---------------- */

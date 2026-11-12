@@ -11,9 +11,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { getAudioContext, playMidi, stopAllNotes } from "@/lib/audio";
-import { CHORD_MODE_LABELS, chordKeyLabel, type ChordKey, type ChordModeId } from "@/lib/music/chord";
+import { getAudioContext, playMidi, scheduleClick, stopAllNotes } from "@/lib/audio";
+import { CHORD_MODE_LABELS, chordKeyLabel, type ChordKey } from "@/lib/music/chord";
 import { noteName, solfege, tempoTermOf } from "@/lib/music/theory";
 import {
   durationBeats,
@@ -22,9 +23,9 @@ import {
   meterId,
   type Phrase,
 } from "@/lib/music/rhythm";
+import type { MeterId, PhraseModeId } from "@/lib/settings";
 import { PhraseSheet } from "@/components/PhraseSheet";
-
-type PhraseModeId = Extract<ChordModeId, "major" | "naturalMinor">;
+import { clampTempo } from "@/components/Metronome";
 
 const PHRASE_MODE_LABELS: Record<PhraseModeId, string> = {
   major: "大调",
@@ -40,18 +41,47 @@ const TEMPO_QUICK: { label: string; bpm: number }[] = [
   { label: "快板", bpm: 132 },
 ];
 
-function buildPhrase(key: ChordKey, meter: [number, number], bars: number): Phrase {
-  return generatePhrase({ key, meter, bars, lo: RANGE_LO, hi: RANGE_HI });
+function buildPhrase(key: ChordKey, meter: MeterId, bars: number): Phrase {
+  const [numerator, denominator] = meter.split("/").map(Number) as [number, number];
+  return generatePhrase({ key, meter: [numerator, denominator], bars, lo: RANGE_LO, hi: RANGE_HI });
 }
 
-export function PhrasePractice() {
-  const [keyMode, setKeyMode] = useState<PhraseModeId>("major");
-  const [rootPc, setRootPc] = useState(0);
-  const [meter, setMeter] = useState<"2/4" | "3/4" | "4/4">("4/4");
-  const [bars, setBars] = useState(2);
-  const [bpm, setBpm] = useState(84);
+interface PhrasePracticeProps {
+  /** 与节拍器共享的速度 / 拍号 / 音量 */
+  bpm: number;
+  onBpmChange: (bpm: number) => void;
+  meter: MeterId;
+  onMeterChange: (meter: MeterId) => void;
+  metronomeVolume: number;
+  /** 乐句自身设置 */
+  bars: 2 | 4;
+  onBarsChange: (bars: 2 | 4) => void;
+  keyMode: PhraseModeId;
+  onKeyModeChange: (mode: PhraseModeId) => void;
+  rootPc: number;
+  onRootPcChange: (pc: number) => void;
+  /** 播放前给一整小节预备拍 */
+  countIn: boolean;
+  onCountInChange: (value: boolean) => void;
+}
+
+export function PhrasePractice({
+  bpm,
+  onBpmChange,
+  meter,
+  onMeterChange,
+  metronomeVolume,
+  bars,
+  onBarsChange,
+  keyMode,
+  onKeyModeChange,
+  rootPc,
+  onRootPcChange,
+  countIn,
+  onCountInChange,
+}: PhrasePracticeProps) {
   const [phrase, setPhrase] = useState<Phrase>(() =>
-    buildPhrase({ mode: "major", rootPc: 0 }, [4, 4], 2),
+    buildPhrase({ mode: keyMode, rootPc }, meter, bars),
   );
   const [playing, setPlaying] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -95,7 +125,7 @@ export function PhrasePractice() {
   useEffect(() => () => stopPlayback(), [stopPlayback]);
 
   const regenerate = useCallback(
-    (nextKey: ChordKey, nextMeter: [number, number], nextBars: number) => {
+    (nextKey: ChordKey, nextMeter: MeterId, nextBars: number) => {
       stopPlayback();
       setPlayed([]);
       setPhrase(buildPhrase(nextKey, nextMeter, nextBars));
@@ -108,8 +138,7 @@ export function PhrasePractice() {
   useEffect(() => {
     if (prevSettingsRef.current === settingsKey) return;
     prevSettingsRef.current = settingsKey;
-    const parsed = meter.split("/").map(Number) as [number, number];
-    regenerate({ mode: keyMode, rootPc }, parsed, bars);
+    regenerate({ mode: keyMode, rootPc }, meter, bars);
   }, [settingsKey, keyMode, rootPc, meter, bars, regenerate]);
 
   const play = useCallback(() => {
@@ -119,13 +148,22 @@ export function PhrasePractice() {
     void ctx.resume();
 
     const flat = flattenEvents(phrase);
-    const spb = 60 / Math.min(260, Math.max(30, bpm));
+    const spb = 60 / clampTempo(bpm);
+    const leadBeats = countIn ? Number(meter.split("/")[0]) || 4 : 0;
+    const leadAt = ctx.currentTime + 0.08;
+    const melodyAt = leadAt + leadBeats * spb;
+
+    // 预备拍：managed=true，点「停止」时可随旋律一起掐掉
+    for (let index = 0; index < leadBeats; index++) {
+      scheduleClick(leadAt + index * spb, index === 0, metronomeVolume / 100, true);
+    }
+
     const starts: number[] = [];
     let cursor = 0;
     flat.forEach((event) => {
       starts.push(cursor);
       const seconds = Math.max(0.12, durationBeats(event.dur) * spb * 0.92);
-      if (event.note) playMidi(event.note.midi, seconds, 0.22, ctx.currentTime + 0.06 + cursor);
+      if (event.note) playMidi(event.note.midi, seconds, 0.22, melodyAt + cursor);
       cursor += durationBeats(event.dur) * spb;
     });
     totalSecRef.current = cursor;
@@ -133,14 +171,18 @@ export function PhrasePractice() {
     playingRef.current = true;
     setPlaying(true);
     setPlayed([]);
-    setActiveIndex(0);
+    setActiveIndex(leadBeats > 0 ? null : 0);
 
-    const t0 = ctx.currentTime + 0.06;
     const tick = () => {
       if (!playingRef.current) return;
       const now = getAudioContext();
       if (!now) return;
-      const elapsed = now.currentTime - t0;
+      const elapsed = now.currentTime - melodyAt;
+      if (elapsed < 0) {
+        setActiveIndex(null);
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
       if (elapsed >= totalSecRef.current + 0.2) {
         playingRef.current = false;
         setPlaying(false);
@@ -161,9 +203,7 @@ export function PhrasePractice() {
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-  }, [bpm, phrase, stopPlayback]);
-
-  const rootSelectValue = String(rootPc);
+  }, [bpm, phrase, stopPlayback, countIn, meter, metronomeVolume]);
 
   return (
     <div className="space-y-4">
@@ -176,7 +216,7 @@ export function PhrasePractice() {
               variant="outline"
               value={meter}
               onValueChange={(value) => {
-                if (value === "2/4" || value === "3/4" || value === "4/4") setMeter(value);
+                if (value === "2/4" || value === "3/4" || value === "4/4") onMeterChange(value);
               }}
               className="justify-stretch"
               aria-label="拍号"
@@ -194,7 +234,7 @@ export function PhrasePractice() {
               variant="outline"
               value={String(bars)}
               onValueChange={(value) => {
-                if (value === "2" || value === "4") setBars(Number(value));
+                if (value === "2" || value === "4") onBarsChange(Number(value) as 2 | 4);
               }}
               className="justify-stretch"
               aria-label="小节数"
@@ -206,7 +246,7 @@ export function PhrasePractice() {
 
           <div className="space-y-2">
             <Label htmlFor="phrase-mode">调式</Label>
-            <Select value={keyMode} onValueChange={(value) => setKeyMode(value as PhraseModeId)}>
+            <Select value={keyMode} onValueChange={(value) => onKeyModeChange(value as PhraseModeId)}>
               <SelectTrigger id="phrase-mode" className="w-32">
                 <SelectValue />
               </SelectTrigger>
@@ -222,7 +262,7 @@ export function PhrasePractice() {
 
           <div className="space-y-2">
             <Label htmlFor="phrase-root">主音</Label>
-            <Select value={rootSelectValue} onValueChange={(value) => setRootPc(Number(value))}>
+            <Select value={String(rootPc)} onValueChange={(value) => onRootPcChange(Number(value))}>
               <SelectTrigger id="phrase-root" className="w-24">
                 <SelectValue />
               </SelectTrigger>
@@ -247,7 +287,7 @@ export function PhrasePractice() {
                 value={bpm}
                 onChange={(event) => {
                   const next = Number(event.target.value);
-                  if (Number.isFinite(next)) setBpm(Math.min(260, Math.max(30, Math.round(next))));
+                  if (Number.isFinite(next)) onBpmChange(clampTempo(Math.round(next)));
                 }}
                 className="w-20"
                 aria-label="速度 BPM"
@@ -263,7 +303,7 @@ export function PhrasePractice() {
                   size="sm"
                   variant={bpm === item.bpm ? "secondary" : "ghost"}
                   className="h-7 px-2 text-xs"
-                  onClick={() => setBpm(item.bpm)}
+                  onClick={() => onBpmChange(item.bpm)}
                 >
                   {item.label}
                 </Button>
@@ -271,14 +311,23 @@ export function PhrasePractice() {
             </div>
           </div>
 
+          <div className="space-y-2">
+            <Label htmlFor="phrase-count-in">预备拍</Label>
+            <div className="flex h-9 items-center justify-between gap-2 rounded-md border border-input px-3">
+              <span className="text-sm whitespace-nowrap">播前一整小节</span>
+              <Switch
+                id="phrase-count-in"
+                checked={countIn}
+                onCheckedChange={onCountInChange}
+              />
+            </div>
+          </div>
+
           <div className="ml-auto flex items-center gap-2">
             <Button
               size="sm"
               variant="outline"
-              onClick={() => {
-                const parsed = meter.split("/").map(Number) as [number, number];
-                regenerate({ mode: keyMode, rootPc }, parsed, bars);
-              }}
+              onClick={() => regenerate({ mode: keyMode, rootPc }, meter, bars)}
               aria-label="换一句"
             >
               <RefreshCw className="mr-1 size-4" />
@@ -301,7 +350,7 @@ export function PhrasePractice() {
               已播放 {played.length} / {events.length}
             </h2>
             <span className="text-xs text-muted-foreground">
-              {keyLabel} · {meterId(phrase.meter)} · {bpm} BPM
+              {keyLabel} · {meterId(phrase.meter)} · {bpm} BPM{countIn ? " · 含预备拍" : ""}
             </span>
           </div>
           <div className="flex flex-wrap gap-1.5" data-testid="played-flow">

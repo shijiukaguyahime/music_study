@@ -1,10 +1,15 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BarChart3,
   CheckCircle2,
+  ChevronDown,
   Circle,
+  CircleHelp,
   Headphones,
+  Lightbulb,
   RotateCcw,
   RotateCw,
+  Settings2,
   Timer,
   Volume2,
   XCircle,
@@ -14,12 +19,14 @@ import { FreePlay } from "@/components/FreePlay";
 import { IntervalOptions } from "@/components/IntervalOptions";
 import { Metronome } from "@/components/Metronome";
 import { PianoKeyboard } from "@/components/PianoKeyboard";
+import { QuestionGuideBody } from "@/components/QuestionGuide";
 import { RhythmOptions } from "@/components/RhythmOptions";
 import { ScratchKeyboard } from "@/components/ScratchKeyboard";
-import { SettingsPanel, type TrainMode } from "@/components/SettingsPanel";
+import { SettingsPanel } from "@/components/SettingsPanel";
 import { SessionPanel } from "@/components/SessionPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Sheet } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
@@ -49,14 +56,13 @@ import { rhythmTimeline } from "@/lib/music/rhythmQuiz";
 import { formatMs, midiLabelFor, noteLabel } from "@/lib/music/labels";
 import { generateRound, rangeOf, roundFromKey, type QuizRound } from "@/lib/quiz";
 import {
-  clearWeakness,
+  clearModeStats,
   groupKey,
   isChordQuestion,
   isIntervalQuestion,
   loadProgress,
   reactionSummary,
   recordAnswer,
-  resetGroup,
   saveProgress,
   statsOf,
   topWeaknesses,
@@ -74,30 +80,15 @@ import {
 } from "@/lib/session";
 import { loadSettings, saveSettings, type SessionSize, type Settings } from "@/lib/settings";
 import { useMidiInput } from "@/lib/midi";
+import { MODE_CONTENT, MODE_GROUPS, pickTip } from "@/lib/learning";
+import { wrongExplanation } from "@/lib/explanation";
 
 /** 顶栏视图：训练 / 自由演奏 / 乐句视唱 */
 type View = "train" | "free" | "phrase";
+/** 训练页的四个抽屉：其余内容都从这里进入，主区只留练习本身 */
+type Panel = "mode" | "help" | "stats" | "settings";
 
-const MODE_LABELS: Record<TrainMode, string> = {
-  note: "单音",
-  interval: "音程",
-  ear: "练耳",
-  chord: "和弦",
-  rhythm: "节奏",
-  sightread: "视奏",
-  key: "认调号",
-};
 const CLEF_LABELS: Record<Clef, string> = { treble: "高音谱", bass: "低音谱", grand: "大谱表" };
-
-const MODE_BUTTONS: { mode: TrainMode; label: string }[] = [
-  { mode: "note", label: "单音训练" },
-  { mode: "interval", label: "音程训练" },
-  { mode: "ear", label: "练耳训练" },
-  { mode: "chord", label: "和弦训练" },
-  { mode: "rhythm", label: "节奏训练" },
-  { mode: "sightread", label: "视奏练习" },
-  { mode: "key", label: "认调号" },
-];
 
 /** 只有这些字段变化才需要换个题；音量、标记、题数等不该打断当前题 */
 function questionSeed(settings: Settings): string {
@@ -132,9 +123,12 @@ export default function App() {
   });
 
   const [settings, setSettings] = useState<Settings>(initial.settings);
+  /** 主区小技巧：进板块或换题时从池子里随机换一条，不会一直停在同一句上 */
+  const [tip, setTip] = useState(() => pickTip(initial.settings.mode));
   const [view, setView] = useState<View>("train");
   const [notesHidden, setNotesHidden] = useState(false);
   const [metronomeOpen, setMetronomeOpen] = useState(false);
+  const [panel, setPanel] = useState<Panel | null>(null);
   /** 本题的声音还在播放时为 false，播放期间不接受作答 */
   const [questionReady, setQuestionReady] = useState(true);
 
@@ -198,6 +192,16 @@ export default function App() {
   useEffect(() => saveSettings(settings), [settings]);
   useEffect(() => saveProgress(progress), [progress]);
   useEffect(() => saveSessions(sessions), [sessions]);
+
+  /** 切板块或换下一题时换一条小技巧（不与上一条重复） */
+  const tipSourceRef = useRef(`${initial.settings.mode}|${initial.round.key}`);
+  useEffect(() => {
+    const source = `${settings.mode}|${round.key}`;
+    // 首屏已经有初始小技巧，第一次挂载不要再换一次，避免文字闪一下
+    if (source === tipSourceRef.current) return;
+    tipSourceRef.current = source;
+    setTip((previous) => pickTip(settings.mode, previous));
+  }, [settings.mode, round.key]);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -669,7 +673,7 @@ export default function App() {
     if (settings.mode === "rhythm") return `节奏 · ${settings.meter} · ${settings.bpm} BPM`;
     if (settings.mode === "sightread") return `视奏 · ${settings.meter} · ${settings.bpm} BPM`;
     if (settings.mode === "key") return "认调号 · 大调 / 小调";
-    return `${MODE_LABELS[settings.mode]} · ${CLEF_LABELS[settings.clef]} · ${range.label.split("（")[0]}`;
+    return `${MODE_CONTENT[settings.mode].shortLabel} · ${CLEF_LABELS[settings.clef]} · ${range.label.split("（")[0]}`;
   }, [settings, range]);
 
   const question = round.question;
@@ -688,7 +692,9 @@ export default function App() {
   const isRhythm = settings.mode === "rhythm";
   const isKey = settings.mode === "key";
   const isChordPlay = settings.mode === "chord" && settings.chordTask === "play";
-  const isListenCard = isEar || isRhythm || round.aural;
+  /** 听音题作答前隐藏谱面；揭晓后补出答案谱，与下方绿色琴键形成对应 */
+  const showAnswerStaff = revealed && (isEar || round.aural);
+  const isListenCard = (isEar || isRhythm || round.aural) && !showAnswerStaff;
 
   const idleText = (() => {
     if (isEar) {
@@ -705,12 +711,12 @@ export default function App() {
           : "听刚才的和弦，选择性质"
         : "正在播放题目音… 请仔细听";
     }
-    if (settings.mode === "interval") return "看谱后在下方选择两个音构成的音程";
+    if (settings.mode === "interval") return "看谱后选择两个音构成的音程";
     if (settings.mode === "chord") {
       if (settings.chordTask === "play") return "看标记，在钢琴键盘上弹出该和弦的音（顺序不限）";
       return settings.chordDiatonic ? "看谱后先选和弦性质，再选调内级数" : "看谱后选择和弦性质";
     }
-    const action = settings.noteCount === 1 ? "在下方钢琴键盘上作答" : `弹出全部 ${settings.noteCount} 个音（顺序不限）`;
+    const action = settings.noteCount === 1 ? "在钢琴键盘上作答" : `弹出全部 ${settings.noteCount} 个音（顺序不限）`;
     return notesHidden ? `谱面已隐藏，凭记忆${action}` : `看谱后${action}`;
   })();
 
@@ -742,6 +748,8 @@ export default function App() {
     return ok ? `回答正确：${answer}` : `答错了，正确答案是 ${answer}`;
   })();
 
+  const answerExplanation = revealed && !ok ? wrongExplanation(round, settings) : "";
+
   const shortcutHint = (() => {
     if (isSightread) return "快捷键：白键 A S D F G H J，黑键 W E T Y U，空格跳过。";
     if (settings.mode === "interval" || isRhythm || isKey || (settings.mode === "chord" && settings.chordTask === "identify")) {
@@ -752,62 +760,75 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b bg-card/70 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-3 sm:px-4 sm:py-4">
-          <div className="flex shrink-0 items-baseline gap-3">
-            <h1 className="text-xl font-semibold tracking-tight">识谱训练</h1>
-            <p className="hidden text-sm text-muted-foreground sm:block">五线谱视奏练习</p>
-          </div>
-          <nav
-            aria-label="训练模式"
-            className="-mx-3 flex w-full items-center gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:w-auto sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0"
+      <header className="sticky top-0 z-30 border-b bg-card/80 backdrop-blur">
+        <div className="mx-auto flex max-w-3xl items-center gap-2 px-3 py-2 sm:px-4 sm:py-1.5">
+          <h1 className="hidden shrink-0 text-base font-semibold tracking-tight min-[360px]:block">识谱训练</h1>
+          <Button
+            size="sm"
+            variant="outline"
+            className="min-w-0 gap-1"
+            onClick={() => setPanel("mode")}
+            aria-haspopup="dialog"
+            aria-label="选择训练模式"
           >
-            {MODE_BUTTONS.map((item) => (
+            <span className="truncate">
+              {view === "train"
+                ? MODE_CONTENT[settings.mode].label
+                : view === "phrase"
+                  ? "乐句视唱"
+                  : "自由演奏"}
+            </span>
+            <ChevronDown className="size-3.5 shrink-0 opacity-70" />
+          </Button>
+          <div className="ml-auto flex shrink-0 items-center gap-0.5">
+            <Button
+              size="icon"
+              variant={metronomeOpen ? "secondary" : "ghost"}
+              className="size-9 sm:size-8"
+              aria-label="节拍器"
+              aria-pressed={metronomeOpen}
+              title="节拍器"
+              onClick={() => setMetronomeOpen((open) => !open)}
+            >
+              <Timer className="size-4" />
+            </Button>
+            {view === "train" && (
               <Button
-                key={item.mode}
-                size="sm"
-                className="shrink-0 whitespace-nowrap"
-                variant={settings.mode === item.mode && view === "train" ? "default" : "outline"}
-                onClick={() => {
-                  stopAllNotes();
-                  setView("train");
-                  updateSettings({ mode: item.mode });
-                }}
+                size="icon"
+                variant="ghost"
+                className="size-9 sm:size-8"
+                aria-label="入门答疑"
+                title="这一页怎么用（零基础）"
+                onClick={() => setPanel("help")}
               >
-                {item.mode === "ear" && <Headphones className="mr-1 size-4" />}
-                {item.label}
+                <CircleHelp className="size-4" />
               </Button>
-            ))}
+            )}
             <Button
-              size="sm"
-              className="shrink-0 whitespace-nowrap"
-              variant={view === "phrase" ? "default" : "outline"}
-              onClick={() => { stopAllNotes(); setView((value) => (value === "phrase" ? "train" : "phrase")); }}
+              size="icon"
+              variant="ghost"
+              className="size-9 sm:size-8"
+              aria-label="统计"
+              title="统计与一组练习"
+              onClick={() => setPanel("stats")}
             >
-              乐句视唱
+              <BarChart3 className="size-4" />
             </Button>
             <Button
-              size="sm"
-              className="shrink-0 whitespace-nowrap"
-              variant={view === "free" ? "default" : "outline"}
-              onClick={() => { stopAllNotes(); setView((value) => (value === "free" ? "train" : "free")); }}
+              size="icon"
+              variant="ghost"
+              className="size-9 sm:size-8"
+              aria-label="设置"
+              title="训练设置"
+              onClick={() => setPanel("settings")}
             >
-              自由演奏
+              <Settings2 className="size-4" />
             </Button>
-            <Button
-              size="sm"
-              className="shrink-0 whitespace-nowrap"
-              variant={metronomeOpen ? "default" : "outline"}
-              onClick={() => setMetronomeOpen((value) => !value)}
-            >
-              <Timer className="mr-1 size-4" />
-              节拍器
-            </Button>
-          </nav>
+          </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl space-y-4 px-3 py-4 sm:px-4 sm:py-6">
+      <main className="mx-auto max-w-3xl space-y-3 px-3 py-3 sm:px-4 sm:py-3.5">
         {view === "free" ? (
           <Card>
             <CardContent className="py-5"><FreePlay /></CardContent>
@@ -832,14 +853,11 @@ export default function App() {
           </Suspense>
         ) : (
           <>
-            <Card>
-              <CardContent className="py-5">
-                <SettingsPanel settings={settings} onChange={updateSettings} midiStatus={midiStatus} />
-              </CardContent>
-            </Card>
-
-            <div className="grid gap-4 lg:grid-cols-[1fr_272px]">
-              <div className="space-y-4">
+            <div className="flex flex-col gap-3">
+              <p className="flex items-start gap-1.5 px-0.5 text-xs leading-relaxed text-muted-foreground">
+                <Lightbulb className="mt-0.5 size-3.5 shrink-0" />
+                <span>{tip}</span>
+              </p>
                 {reviewKeys && (
                   <Card className="border-amber-400/60 bg-amber-50">
                     <CardContent className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
@@ -860,7 +878,8 @@ export default function App() {
                 )}
 
                 {isSightread && round.sightread ? (
-                  <Suspense fallback={<SheetFallback />}>
+                  <>
+                    <Suspense fallback={<SheetFallback />}>
                     <SightReadPractice
                       key={`${round.key}-${attempt}`}
                       question={round.sightread}
@@ -871,6 +890,12 @@ export default function App() {
                       onFinish={(correct) => finish(correct, 0)}
                     />
                   </Suspense>
+                    {answerExplanation && (
+                      <p className="rounded-md border border-red-500/40 bg-red-50 px-3 py-2 text-sm leading-relaxed text-red-700">
+                        {answerExplanation}
+                      </p>
+                    )}
+                  </>
                 ) : (
                   <>
                     {isListenCard ? (
@@ -925,15 +950,16 @@ export default function App() {
                     )}
 
                     <Card
-                      className={
+                      className={`order-last ${
                         !revealed
                           ? "border-dashed"
                           : ok
                             ? "border-emerald-500/60 bg-emerald-50"
                             : "border-red-500/60 bg-red-50"
-                      }
+                      }`}
                     >
-                      <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+                      <CardContent className="py-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2 text-sm">
                           {!revealed ? (
                             <>
@@ -979,6 +1005,12 @@ export default function App() {
                             <kbd className="ml-1 text-xs text-muted-foreground">空格</kbd>
                           </Button>
                         </div>
+                        </div>
+                        {answerExplanation && (
+                          <p className="mt-3 border-t border-red-200/70 pt-3 text-sm leading-relaxed text-red-700">
+                            {answerExplanation}
+                          </p>
+                        )}
                       </CardContent>
                     </Card>
 
@@ -991,6 +1023,7 @@ export default function App() {
                             span={keyboardSpan}
                             revealed={revealed}
                             labelFor={labelFor}
+                            showStaffMapping={settings.mode === "note" || isEar}
                             onPick={answerNote}
                           />
                         ) : settings.mode === "interval" && interval ? (
@@ -1051,11 +1084,12 @@ export default function App() {
                 )}
               </div>
 
-              <div className="space-y-4">
+              <Sheet open={panel === "stats"} onClose={() => setPanel(null)} title="统计与一组练习">
+                <div className="space-y-4">
                 <SessionPanel
                   session={session}
                   summary={sessionSummary}
-                  scopeLabel={MODE_LABELS[settings.mode]}
+                  scopeLabel={MODE_CONTENT[settings.mode].shortLabel}
                   onRestart={() => restartSession()}
                   onReviewWrong={() => {
                     const keys = summarizeSession(sessionRef.current).wrongKeys;
@@ -1064,6 +1098,7 @@ export default function App() {
                     setReviewKeys(keys);
                     updateSession(() => emptySession(0));
                     nextQuestion();
+                    setPanel(null);
                   }}
                   onSizeChange={(size) => {
                     updateSettings({ sessionSize: size });
@@ -1082,9 +1117,9 @@ export default function App() {
                         size="icon"
                         variant="ghost"
                         className="size-7 shrink-0"
-                        onClick={() => setProgress((prev) => resetGroup(prev, currentGroup))}
-                        aria-label="重置当前配置成绩"
-                        title="重置当前配置成绩"
+                        onClick={() => setProgress((prev) => clearModeStats(prev, settings.mode))}
+                        aria-label="清空本模式统计"
+                        title="清空本模式统计：成绩、错题、反应时与复习计划一起清掉"
                       >
                         <RotateCcw className="size-3.5" />
                       </Button>
@@ -1170,22 +1205,14 @@ export default function App() {
                           size="sm"
                           variant="ghost"
                           className="h-6 px-1.5 text-xs"
-                          onClick={() => setProgress((prev) => clearWeakness(prev, settings.mode))}
+                          onClick={() => setProgress((prev) => clearModeStats(prev, settings.mode))}
                         >
-                          清空本模式错题与反应记录
+                          清空本模式统计
                         </Button>
                       )}
                     </div>
 
                     <div className="space-y-2 border-t pt-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <Label htmlFor="wrong-manual-next" className="text-xs leading-tight">答错时手动下一题</Label>
-                        <Switch
-                          id="wrong-manual-next"
-                          checked={settings.wrongManualNext}
-                          onCheckedChange={(value) => updateSettings({ wrongManualNext: value })}
-                        />
-                      </div>
                       <div className="flex items-center justify-between gap-2">
                         <Label htmlFor="focus-weak" className="text-xs leading-tight">只练错过的题</Label>
                         <Switch
@@ -1204,11 +1231,69 @@ export default function App() {
                     </div>
                   </CardContent>
                 </Card>
-              </div>
-            </div>
+                </div>
+              </Sheet>
           </>
         )}
       </main>
+
+      <Sheet open={panel === "mode"} onClose={() => setPanel(null)} title="选择训练">
+        <div className="space-y-5">
+          {MODE_GROUPS.map((group) => (
+            <div key={group.id}>
+              <p className="mb-2 text-xs text-muted-foreground">{group.label}</p>
+              <div className="grid grid-cols-2 gap-2">
+                {group.modes.map((mode) => {
+                  const active = view === "train" && settings.mode === mode;
+                  return (
+                    <Button
+                      key={mode}
+                      variant={active ? "default" : "outline"}
+                      className="justify-start"
+                      onClick={() => {
+                        stopAllNotes();
+                        setView("train");
+                        updateSettings({ mode });
+                        setPanel(null);
+                      }}
+                    >
+                      {mode === "ear" && <Headphones className="mr-1.5 size-4" />}
+                      {MODE_CONTENT[mode].label}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <div>
+            <p className="mb-2 text-xs text-muted-foreground">辅助工具</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant={view === "phrase" ? "default" : "outline"}
+                className="justify-start"
+                onClick={() => { stopAllNotes(); setView("phrase"); setPanel(null); }}
+              >
+                乐句视唱
+              </Button>
+              <Button
+                variant={view === "free" ? "default" : "outline"}
+                className="justify-start"
+                onClick={() => { stopAllNotes(); setView("free"); setPanel(null); }}
+              >
+                自由演奏
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Sheet>
+
+      <Sheet open={panel === "help"} onClose={() => setPanel(null)} title={`${MODE_CONTENT[settings.mode].label} · 零基础也能用`}>
+        <QuestionGuideBody mode={settings.mode} />
+      </Sheet>
+
+      <Sheet open={panel === "settings"} onClose={() => setPanel(null)} title="训练设置">
+        <SettingsPanel settings={settings} onChange={updateSettings} midiStatus={midiStatus} />
+      </Sheet>
 
       <Metronome
         open={metronomeOpen}

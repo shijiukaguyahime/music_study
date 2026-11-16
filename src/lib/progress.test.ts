@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   REACTION_WINDOW,
   REVIEW_INTERVALS,
+  clearModeStats,
   clearWeakness,
   describeQuestionKey,
   groupKey,
@@ -215,6 +216,30 @@ describe("统计按训练模式隔离", () => {
     expect(cleared.reactions["key:G"]).toEqual([500]);
     expect(cleared.memory["key:G"]).toBeDefined();
     expect(statsOf(cleared, "g").total).toBe(2);
+  });
+
+  it("clearModeStats 把本模式的成绩与题目级记录一起清干净，其他模式不动", () => {
+    let progress = EMPTY_PROGRESS;
+    progress = recordAnswer(progress, "note|treble|c4-c6", "note:60", false, { reactionMs: 700 });
+    progress = recordAnswer(progress, "note|bass|c2-c4", "note:48", true, { reactionMs: 900 });
+    progress = recordAnswer(progress, "ear", "ear:67", false, { reactionMs: 500 });
+
+    const cleared = clearModeStats(progress, "note");
+
+    // 本模式所有「谱号 / 音域」配置的成绩组都删除
+    expect(statsOf(cleared, "note|treble|c4-c6").total).toBe(0);
+    expect(statsOf(cleared, "note|bass|c2-c4").total).toBe(0);
+    expect(Object.keys(cleared.groups)).toEqual(["ear"]);
+    expect(statsOf(cleared, "ear").total).toBe(1);
+    // 题目级：错题、反应时、复习计划按模式前缀清空
+    expect(cleared.wrong["note:60"]).toBeUndefined();
+    expect(cleared.reactions["note:48"]).toBeUndefined();
+    expect(cleared.memory["note:48"]).toBeUndefined();
+    expect(cleared.wrong["ear:67"]).toBe(1);
+    expect(cleared.reactions["ear:67"]).toEqual([500]);
+    // 清空后按反应慢排行 / 反应概览都不再出现单音数据
+    expect(topWeaknesses(cleared, 5, "slow", "note")).toEqual([]);
+    expect(reactionSummary(cleared, 3, "note").count).toBe(0);
   });
 });
 

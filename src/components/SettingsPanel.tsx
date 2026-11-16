@@ -14,6 +14,7 @@ import { CHORD_MODE_LABELS, chordRootLabels, type ChordModeId } from "@/lib/musi
 import { KEY_SIGNATURES } from "@/lib/music/keySignature";
 import { LABEL_MODE_NAMES, type LabelMode } from "@/lib/music/labels";
 import { MIDI_STATUS_TEXT, type MidiStatus } from "@/lib/midi";
+import { SETTING_HINTS } from "@/lib/learning";
 import type {
   ChordScope, ChordTask, KeyQuizScope, MeterId, NoteLabelMode,
   Presentation, Settings,
@@ -35,6 +36,10 @@ const PRESENTATION_LABELS: Record<Presentation, string> = {
 const METERS: MeterId[] = ["2/4", "3/4", "4/4"];
 const NOTE_LABEL_MODES: NoteLabelMode[] = ["letter", "solfege", "number"];
 
+function SettingHint({ id }: { id: string }) {
+  return <p className="text-xs leading-relaxed text-muted-foreground">{SETTING_HINTS[id]}</p>;
+}
+
 export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelProps) {
   const { mode } = settings;
   const ranges = RANGES[settings.clef];
@@ -47,7 +52,7 @@ export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelP
   const showPresentation = mode === "interval" || (mode === "chord" && settings.chordTask === "identify");
 
   return (
-    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
+    <div className="grid gap-5 sm:grid-cols-2">
       {staffModes && (
         <div className="space-y-2">
           <Label>谱号</Label>
@@ -67,6 +72,7 @@ export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelP
             <ToggleGroupItem value="bass" className="flex-1">低音</ToggleGroupItem>
             <ToggleGroupItem value="grand" className="flex-1">大谱表</ToggleGroupItem>
           </ToggleGroup>
+          <SettingHint id="clef" />
         </div>
       )}
 
@@ -83,6 +89,7 @@ export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelP
               ))}
             </SelectContent>
           </Select>
+          <SettingHint id="range" />
         </div>
       )}
 
@@ -97,6 +104,7 @@ export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelP
               onCheckedChange={(value) => onChange({ allowAccidentals: value })}
             />
           </div>
+          <SettingHint id="accidentals" />
         </div>
       )}
 
@@ -202,6 +210,7 @@ export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelP
               <ToggleGroupItem value="diatonic" className="flex-1">调内和弦</ToggleGroupItem>
               <ToggleGroupItem value="any" className="flex-1">任意和弦</ToggleGroupItem>
             </ToggleGroup>
+            <SettingHint id="chordDiatonic" />
           </div>
           {settings.chordDiatonic && (
             <>
@@ -252,13 +261,14 @@ export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelP
             <Label htmlFor="chord-inversions-switch">转位</Label>
             <div className="flex h-9 items-center justify-between rounded-md border border-input px-3">
               <span className="text-sm">含转位</span>
-              <Switch
-                id="chord-inversions-switch"
-                checked={settings.chordInversions}
-                onCheckedChange={(value) => onChange({ chordInversions: value })}
-              />
-            </div>
+            <Switch
+              id="chord-inversions-switch"
+              checked={settings.chordInversions}
+              onCheckedChange={(value) => onChange({ chordInversions: value })}
+            />
           </div>
+          <SettingHint id="chordInversions" />
+        </div>
         </>
       )}
 
@@ -276,6 +286,7 @@ export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelP
                 <ToggleGroupItem key={meter} value={meter} className="flex-1">{meter}</ToggleGroupItem>
               ))}
             </ToggleGroup>
+            <SettingHint id="meter" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="quiz-bpm">速度（BPM）</Label>
@@ -303,6 +314,7 @@ export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelP
                   onCheckedChange={(value) => onChange({ countIn: value })}
                 />
               </div>
+              <SettingHint id="countIn" />
             </div>
           )}
           <div className="space-y-2">
@@ -328,6 +340,7 @@ export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelP
               <ToggleGroupItem value="minor" className="flex-1">小调</ToggleGroupItem>
               <ToggleGroupItem value="both" className="flex-1">全部</ToggleGroupItem>
             </ToggleGroup>
+            <SettingHint id="keyQuizScope" />
           </div>
           <div className="space-y-2">
             <Label>题型</Label>
@@ -339,6 +352,19 @@ export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelP
       )}
 
       {/* ---------- 通用训练设置 ---------- */}
+      <div className="space-y-2">
+        <Label htmlFor="wrong-manual-next">答错时手动下一题</Label>
+        <div className="flex h-9 items-center justify-between rounded-md border border-input px-3">
+          <span className="text-sm">答错后停在本题</span>
+          <Switch
+            id="wrong-manual-next"
+            checked={settings.wrongManualNext}
+            onCheckedChange={(value) => onChange({ wrongManualNext: value })}
+          />
+        </div>
+        <SettingHint id="wrongManualNext" />
+      </div>
+
       {showPresentation && (
         <div className="space-y-2">
           <Label>呈现方式</Label>
@@ -354,13 +380,7 @@ export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelP
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <p className="text-xs text-muted-foreground">
-            {settings.presentation === "visual"
-              ? "只看谱面作答"
-              : settings.presentation === "aural"
-                ? "隐藏谱面，听音作答"
-                : "每题随机看谱或听音"}
-          </p>
+          <SettingHint id="presentation" />
         </div>
       )}
 
@@ -378,7 +398,7 @@ export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelP
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
-        <p className="text-xs text-muted-foreground">首调唱名 / 简谱数字按 C 大调主音换算</p>
+        <SettingHint id="noteLabelMode" />
       </div>
 
       {mode !== "key" && (
@@ -402,6 +422,7 @@ export function SettingsPanel({ settings, onChange, midiStatus }: SettingsPanelP
               </SelectContent>
             </Select>
           )}
+          <SettingHint id="keySignature" />
         </div>
       )}
 

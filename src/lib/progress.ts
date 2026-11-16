@@ -209,6 +209,27 @@ export function clearWeakness(progress: Progress, mode?: TrainMode): Progress {
   };
 }
 
+/**
+ * 清空某训练模式的全部统计：该模式所有「谱号 / 音域」配置的成绩组，
+ * 加上错题、反应时与复习计划。计分板的两个清除按钮都走这里，
+ * 保证从任何一张卡清空都不会在别的卡留下残留。
+ */
+export function clearModeStats(progress: Progress, mode: TrainMode): Progress {
+  const groups = Object.fromEntries(
+    Object.entries(progress.groups).filter(
+      ([key]) => key !== mode && !key.startsWith(`${mode}|`),
+    ),
+  );
+  return {
+    ...progress,
+    groups,
+    wrong: omitMode(progress.wrong, mode),
+    seen: omitMode(progress.seen, mode),
+    reactions: omitMode(progress.reactions, mode),
+    memory: omitMode(progress.memory, mode),
+  };
+}
+
 /** 没练过、或已到复习时间的题都算「到期」 */
 export function isDue(progress: Progress, key: string, now = Date.now()): boolean {
   const memory = progress.memory[key];

@@ -16,12 +16,14 @@ interface PianoKeyboardProps {
   revealed: boolean;
   /** 键帽显示文本（音名 / 首调唱名 / 简谱数字），不传则用音名 */
   labelFor?: (midi: number) => string;
+  /** 上方有答案谱面时，把揭晓文案改成「谱音 ↔ 琴键」的对应说明 */
+  showStaffMapping?: boolean;
   onPick: (midi: number) => void;
 }
 
 type KeyState = "idle" | "pressed" | "correct" | "wrong";
 
-export function PianoKeyboard({ targets, pressed, span, revealed, labelFor, onPick }: PianoKeyboardProps) {
+export function PianoKeyboard({ targets, pressed, span, revealed, labelFor, showStaffMapping = false, onPick }: PianoKeyboardProps) {
   const [lo, hi] = span;
   const label = labelFor ?? midiLabel;
   const whites: number[] = [];
@@ -120,7 +122,11 @@ export function PianoKeyboard({ targets, pressed, span, revealed, labelFor, onPi
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>点击琴键作答 · 白键 A S D F G H J，黑键 W E T Y U</span>
-        {revealed && <span className="font-medium text-foreground">正确琴键：{answerText}</span>}
+        {revealed && (
+          <span className="font-medium text-foreground">
+            {showStaffMapping ? "绿色谱音 ↔ 绿色琴键" : "正确琴键"}：{answerText}
+          </span>
+        )}
       </div>
     </div>
   );

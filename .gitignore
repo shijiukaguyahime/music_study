@@ -24,3 +24,6 @@ dist.zip
 *.njsproj
 *.sln
 *.sw?
+
+# WorkBuddy 本地工作数据（记忆、技能、会话缓存）
+.workbuddy

@@ -175,11 +175,20 @@ export function normalizeSettings(raw: unknown): Settings {
   };
 }
 
+/** 一次性迁移标记：历史开关藏在统计区，旧数据可能存成关闭；统一回到默认开启 */
+const MANUAL_NEXT_MIGRATION_KEY = "musc_demo_manual_next_on_v1";
+
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
-    return normalizeSettings(JSON.parse(raw) as unknown);
+    const settings = normalizeSettings(JSON.parse(raw) as unknown);
+    // 首次加载时把「答错手动下一题」拉回默认开启，之后完全尊重用户开关
+    if (!localStorage.getItem(MANUAL_NEXT_MIGRATION_KEY)) {
+      localStorage.setItem(MANUAL_NEXT_MIGRATION_KEY, "1");
+      return { ...settings, wrongManualNext: true };
+    }
+    return settings;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

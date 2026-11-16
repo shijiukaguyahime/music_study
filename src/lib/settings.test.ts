@@ -115,3 +115,51 @@ describe("设置持久化", () => {
     expect(() => saveSettings(DEFAULT_SETTINGS)).not.toThrow();
   });
 });
+
+describe("手动下一题默认开启的一次性迁移", () => {
+  const SETTINGS_KEY = "musc_demo_settings_v1";
+  const MIGRATION_KEY = "musc_demo_manual_next_on_v1";
+
+  function withStorage(run: (store: Map<string, string>) => void) {
+    const store = new Map<string, string>();
+    const original = globalThis.localStorage;
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => { store.set(key, value); },
+        removeItem: (key: string) => { store.delete(key); },
+      },
+    });
+    try {
+      run(store);
+    } finally {
+      if (original === undefined) Reflect.deleteProperty(globalThis, "localStorage");
+      else Object.defineProperty(globalThis, "localStorage", { configurable: true, value: original });
+    }
+  }
+
+  it("旧数据存的是关闭：首次加载统一回到开启，之后尊重用户开关", () => {
+    withStorage((store) => {
+      store.set(SETTINGS_KEY, JSON.stringify({ ...DEFAULT_SETTINGS, wrongManualNext: false }));
+      const first = loadSettings();
+      expect(first.wrongManualNext).toBe(true);
+      expect(store.has(MIGRATION_KEY)).toBe(true);
+      // 迁移只做一次：之后用户主动关掉会被保留
+      saveSettings({ ...first, wrongManualNext: false });
+      const second = loadSettings();
+      expect(second.wrongManualNext).toBe(false);
+    });
+  });
+
+  it("没有持久化数据时不写迁移标记，直接走默认值", () => {
+    withStorage((store) => {
+      expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
+      expect(store.has(MIGRATION_KEY)).toBe(false);
+    });
+  });
+
+  it("新装用户默认就是手动下一题开启", () => {
+    expect(DEFAULT_SETTINGS.wrongManualNext).toBe(true);
+  });
+});
